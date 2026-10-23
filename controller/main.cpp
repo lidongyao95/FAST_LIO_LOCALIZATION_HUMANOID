@@ -86,7 +86,7 @@ int main(int argc,char** argv){
      else{
       std::vector<float> v(3,0);
       if(c=='w')v={.15f,0,0};else if(c=='s')v={-.12f,0,0};
-      else if(c=='a')v={0,.08f,0};else if(c=='d')v={0,-.08f,0};
+      else if(c=='a')v={0,.15f,0};else if(c=='d')v={0,-.15f,0};
       else if(c=='q')v={0,0,.2f};else if(c=='e')v={0,0,-.2f};
       std::lock_guard<std::mutex> l(cmd_mutex);
       keyboard_velocity=v;keyboard_until=now()+.25;
