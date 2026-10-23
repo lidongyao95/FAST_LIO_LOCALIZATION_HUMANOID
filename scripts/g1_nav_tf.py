@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Expose FAST-LIO pelvis odometry as a planar Nav2 base frame."""
+"""Expose local FAST-LIO odometry as planar odom -> base_footprint TF."""
 import math
 import rclpy
 from rclpy.node import Node

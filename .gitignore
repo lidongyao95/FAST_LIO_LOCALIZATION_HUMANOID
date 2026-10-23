@@ -1,6 +1,8 @@
 /build/
 /install/
 /log/
-/.deps/
+/.deps/*
+!/.deps/src/
+!/.deps/src/*
 /sim/generated/
 __pycache__/

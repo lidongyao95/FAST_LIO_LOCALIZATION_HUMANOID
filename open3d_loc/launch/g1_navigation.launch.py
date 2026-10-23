@@ -17,8 +17,6 @@ def generate_launch_description():
         DeclareLaunchArgument('rviz',default_value='true'),
         Node(package='nav2_map_server',executable='map_server',name='map_server',output='screen',
              parameters=[params,{'use_sim_time':True,'yaml_filename':map_yaml}]),
-        Node(package='nav2_lifecycle_manager',executable='lifecycle_manager',name='lifecycle_manager_map',
-             output='screen',parameters=[{'use_sim_time':True,'autostart':True,'node_names':['map_server']}]),
     ]
     for pkg,exe,name in [('nav2_controller','controller_server','controller_server'),
                          ('nav2_planner','planner_server','planner_server'),
@@ -28,13 +26,10 @@ def generate_launch_description():
         actions.append(Node(package=pkg,executable=exe,name=name,output='screen',
                             parameters=[params,{'use_sim_time':True}],remappings=remap))
     actions.extend([
-        Node(package='nav2_lifecycle_manager',executable='lifecycle_manager',name='lifecycle_manager_navigation',
-             output='screen',parameters=[{'use_sim_time':True,'autostart':True,
-                                           'node_names':['controller_server','planner_server','behavior_server','bt_navigator']}]),
         Node(package='rviz2',executable='rviz2',name='g1_navigation_rviz',output='screen',
              arguments=['-d',PathJoinSubstitution([FindPackageShare('open3d_loc'),'rviz_cfg','g1_navigation.rviz'])],
              parameters=[{'use_sim_time':True}],condition=IfCondition(rviz)),
-        TimerAction(period=8.,actions=[ExecuteProcess(
+        TimerAction(period=1.,actions=[ExecuteProcess(
             cmd=['/usr/bin/python3',PathJoinSubstitution([repo,'scripts/ensure_g1_nav_lifecycle.py'])],
             output='screen')]),
     ])

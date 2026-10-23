@@ -7,24 +7,30 @@ import os
 import time
 from pathlib import Path
 import rclpy
+import rclpy.time
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Odometry, Path as RosPath
 from std_msgs.msg import String, Bool, Float32
 from std_srvs.srv import Trigger, SetBool
+from tf2_ros import Buffer, TransformListener
 
 ROOT=Path(__file__).resolve().parents[1]
 DOMAIN=os.environ.get('ROS_DOMAIN_ID','72')
 STATUS_FILE=ROOT/f'.deps/g1-controller/status-{DOMAIN}.txt'
 class Probe(Node):
  def __init__(self):
-  super().__init__('g1_nav_goal_probe')
+  super().__init__('g1_nav_goal_probe',parameter_overrides=[
+   Parameter('use_sim_time',Parameter.Type.BOOL,True)])
   self.mode=self.create_publisher(String,'/g1/controller_mode',10)
   self.enable=self.create_publisher(Bool,'/g1/nav_enable',10)
   self.manual=self.create_publisher(Twist,'/cmd_vel',10)
+  self.tf_buffer=Buffer()
+  self.tf_listener=TransformListener(self.tf_buffer,self)
   self.action=ActionClient(self,NavigateToPose,'navigate_to_pose')
   self.release=self.create_client(Trigger,'/g1/release')
   self.obstacle=self.create_client(SetBool,'/g1/obstacle')
@@ -45,8 +51,15 @@ class Probe(Node):
   self.plan_updates+=1
  def on_truth(self,m):
   self.truth=m
+  global_xy=[None,None]
+  try:
+   tf=self.tf_buffer.lookup_transform('map','base_footprint',rclpy.time.Time())
+   global_xy=[tf.transform.translation.x,tf.transform.translation.y]
+  except Exception:
+   pass
   if self.odom:self.trace.append([time.time(),m.pose.position.x,m.pose.position.y,m.pose.position.z,
-                                  self.odom.pose.pose.position.x,self.odom.pose.pose.position.y,self.conf,self.ready])
+                                  self.odom.pose.pose.position.x,self.odom.pose.pose.position.y,self.conf,self.ready,
+                                  global_xy[0],global_xy[1]])
   if self.obstacle_active and self.obstacle_xy:
    distance=math.hypot(m.pose.position.x-self.obstacle_xy[0],
                        m.pose.position.y-self.obstacle_xy[1])
@@ -62,6 +75,20 @@ class Probe(Node):
   m=String();m.data=name;self.mode.publish(m)
  def set_nav(self,enabled):
   m=Bool();m.data=enabled;self.enable.publish(m)
+ def set_mode_until(self,name,expected,timeout):
+  end=time.monotonic()+timeout
+  while time.monotonic()<end:
+   self.set_mode(name)
+   rclpy.spin_once(self,timeout_sec=.05)
+   if self.controller_mode()==expected:return True
+  return False
+ def set_nav_until(self,enabled,predicate,timeout):
+  end=time.monotonic()+timeout
+  while time.monotonic()<end:
+   self.set_nav(enabled)
+   rclpy.spin_once(self,timeout_sec=.05)
+   if predicate():return True
+  return False
  def set_obstacle(self,enabled):
   if not self.obstacle.wait_for_service(timeout_sec=3):
    return False
@@ -85,17 +112,14 @@ def main():
  try:
   assert n.spin_until(lambda:n.truth and n.odom and n.conf>=.6,10),'localization unavailable'
   if n.controller_mode()!=3:
-   n.set_mode('stand')
-   assert n.spin_until(lambda:n.controller_mode()==2,5),'stand transition unavailable'
+   assert n.set_mode_until('stand',2,5),'stand transition unavailable'
    n.spin_until(lambda:False,3)
-   n.set_mode('velocity')
-   assert n.spin_until(lambda:n.controller_mode()==3,5),'walking policy unavailable'
+   assert n.set_mode_until('velocity',3,5),'walking policy unavailable'
    n.spin_until(lambda:False,1)
   assert n.release.wait_for_service(timeout_sec=3),'release service unavailable'
   f=n.release.call_async(Trigger.Request())
   assert n.spin_until(lambda:f.done(),3) and f.result().success,'release failed'
-  n.set_nav(True)
-  assert n.spin_until(lambda:n.ready,5),'navigation gate not ready'
+  assert n.set_nav_until(True,lambda:n.ready,5),'navigation gate not ready'
   assert n.action.wait_for_server(timeout_sec=5),'Nav2 action unavailable'
   g=NavigateToPose.Goal();g.pose.header.frame_id='map';g.pose.header.stamp=n.get_clock().now().to_msg()
   g.pose.pose.position.x=args.x;g.pose.pose.position.y=args.y
@@ -132,7 +156,7 @@ def main():
   print(json.dumps({k:v for k,v in result.items() if k not in ('trace','commands')}))
  finally:
   if n.obstacle_active:result['obstacle_removed']=n.set_obstacle(False)
-  n.set_nav(False);n.manual.publish(Twist())
+  n.set_nav_until(False,lambda:not n.ready,.5);n.manual.publish(Twist())
   n.spin_until(lambda:False,.5)
   result['trace']=n.trace
   result['commands']=n.commands
@@ -141,6 +165,17 @@ def main():
   result['controller_mode']=n.controller_mode()
   result['plan_updates']=n.plan_updates
   result['min_obstacle_distance_m']=n.min_obstacle_distance
+  global_samples=[]
+  for sample in n.trace:
+   if len(sample)>=10 and sample[8] is not None:
+    global_samples.append((sample[1],sample[2],sample[8],sample[9]))
+  if global_samples:
+   global_errors=[math.hypot(mx-tx,my-ty) for tx,ty,mx,my in global_samples]
+   final=global_samples[-1]
+   result['final_truth_xy']=[final[0],final[1]]
+   result['final_map_xy']=[final[2],final[3]]
+   result['final_map_error_xy_m']=global_errors[-1]
+   result['max_map_error_xy_m']=max(global_errors)
   Path(args.output).write_text(json.dumps(result))
   n.destroy_node();rclpy.try_shutdown()
 if __name__=='__main__':main()

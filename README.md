@@ -14,6 +14,10 @@ validation scope. In an interactive controller terminal, use `W/S`, `A/D`,
 `Q/E`, space and `1/2/3` for keyboard locomotion and state switching. The
 walking scripts default to NVIDIA PRIME rendering, and mapping/localization
 launches open RViz with live LiDAR and registered point-cloud displays.
+After cloning, run `./scripts/setup_g1_local_deps.sh` to initialize the pinned
+source submodules and prepare the local Python, Open3D and Livox dependencies.
+Then build the controller and run `./scripts/build_g1_ros2.sh` for the ROS
+workspace before loading `scripts/walking_env.sh` in runtime terminals.
 
 ## 0. Highlight
 

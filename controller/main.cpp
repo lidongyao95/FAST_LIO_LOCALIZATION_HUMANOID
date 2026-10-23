@@ -28,7 +28,7 @@ REGISTER_OBSERVATION(control_velocity_commands){
  std::lock_guard<std::mutex> l(cmd_mutex);
  const double t=now();
  // Autonomous navigation has exclusive control. Outside navigation, a held
- // keyboard key takes priority for 0.2 s, then ROS/manual commands may resume.
+ // keyboard key takes priority for 0.25 s, then ROS/manual commands may resume.
  if(ros_nav_active && t-ros_cmd_time<.5)return ros_velocity;
  if(t<keyboard_until)return keyboard_velocity;
  if(t-ros_cmd_time<.5)return ros_velocity;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finish Nav2 activation if Humble lifecycle-manager lost a service reply."""
+"""Configure and activate the Nav2 lifecycle nodes in dependency order."""
 import time
 import rclpy
 from rclpy.node import Node
@@ -34,11 +34,11 @@ class Repair(Node):
     return 0
    for name,state in states.items():
     if state==1:
-     self.get_logger().warn(f'Configuring {name} after lifecycle-manager delay')
+     self.get_logger().info(f'Configuring {name}')
      self.change(name,Transition.TRANSITION_CONFIGURE)
      break
     if state==2:
-     self.get_logger().warn(f'Activating {name} after lifecycle-manager delay')
+     self.get_logger().info(f'Activating {name}')
      self.change(name,Transition.TRANSITION_ACTIVATE)
      break
    time.sleep(.5)

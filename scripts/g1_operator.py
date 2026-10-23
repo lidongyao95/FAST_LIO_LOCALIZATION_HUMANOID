@@ -53,6 +53,20 @@ class Operator(Node):
   m=String();m.data=s;self.mode_pub.publish(m)
  def publish_enable(self,value):
   m=Bool();m.data=value;self.enable_pub.publish(m)
+ def publish_mode_until(self,name,expected,seconds):
+  end=time.monotonic()+seconds
+  while time.monotonic()<end:
+   self.publish_mode(name)
+   rclpy.spin_once(self,timeout_sec=.05)
+   if self.mode()==expected:return True
+  return False
+ def publish_enable_until(self,enabled,predicate,seconds):
+  end=time.monotonic()+seconds
+  while time.monotonic()<end:
+   self.publish_enable(enabled)
+   rclpy.spin_once(self,timeout_sec=.05)
+   if predicate():return True
+  return False
  def status(self):
   p=self.pose.pose.position if self.pose else None
   return {'controller_mode':self.mode(),'released':self.released,
@@ -64,16 +78,14 @@ class Operator(Node):
   if self.released:
    assert self.mode()==3,'base released without walking controller'
    return
-  self.publish_mode('stand')
-  assert self.until(lambda:self.mode()==2,5),'FixStand transition failed'
+  assert self.publish_mode_until('stand',2,5),'FixStand transition failed'
   target=yaml.safe_load((ROOT/'.deps/g1-controller/config.yaml').read_text())['FSM']['FixStand']['qs'][-1]
   def settled():
    if not self.joints or len(self.joints.position)<len(target):return False
    error=math.sqrt(sum((a-b)**2 for a,b in zip(self.joints.position,target))/len(target))
    return error<.12
   assert self.until(settled,6),'stand joints did not settle'
-  self.publish_mode('velocity')
-  assert self.until(lambda:self.mode()==3,5),'walking policy transition failed'
+  assert self.publish_mode_until('velocity',3,5),'walking policy transition failed'
   assert self.until(lambda:self.pose and .75<self.pose.pose.position.z<.83,2),'supported pose abnormal'
   assert self.release.wait_for_service(timeout_sec=3),'release service unavailable'
   f=self.release.call_async(Trigger.Request())
@@ -84,10 +96,10 @@ class Operator(Node):
                     time.monotonic()-self.conf_time<.8 and
                     time.monotonic()-self.odom_time<.4,5), \
          'controller, release, odometry or localization not ready'
-  self.publish_enable(True)
-  assert self.until(lambda:self.nav_ready,3),'navigation gate refused enable'
+  assert self.publish_enable_until(True,lambda:self.nav_ready,3),'navigation gate refused enable'
  def stop(self):
-  self.publish_enable(False);self.cmd_pub.publish(Twist())
+  self.publish_enable_until(False,lambda:not self.nav_ready,.5)
+  self.cmd_pub.publish(Twist())
   if self.cancel.wait_for_service(timeout_sec=.5):
    f=self.cancel.call_async(CancelGoal.Request());self.until(lambda:f.done(),3)
   self.until(lambda:False,.5)

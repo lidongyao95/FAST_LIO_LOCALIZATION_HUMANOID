@@ -47,18 +47,23 @@ def main():
     while time.monotonic()-start < args.seconds:
         rclpy.spin_once(node, timeout_sec=.1)
     elapsed = time.monotonic()-start
-    errors, time_errors = [], []
+    errors, horizontal_errors, z_offsets, time_errors = [], [], [], []
     for stamp, xyz in poses:
         if not truth:
             break
         gt_stamp, gt_xyz = min(truth, key=lambda pair: abs(pair[0]-stamp))
         if abs(gt_stamp-stamp) <= .06:
             errors.append(math.dist(xyz, gt_xyz))
+            horizontal_errors.append(math.hypot(xyz[0]-gt_xyz[0], xyz[1]-gt_xyz[1]))
+            z_offsets.append(xyz[2]-gt_xyz[2])
             time_errors.append(abs(gt_stamp-stamp))
     result = dict(duration_s=elapsed, counts=counts,
                   rates_hz={k: v/elapsed for k, v in counts.items()}, latest=latest,
                   matched_pose_samples=len(errors),
                   position_rmse_m=math.sqrt(sum(e*e for e in errors)/len(errors)) if errors else None,
+                  horizontal_rmse_m=math.sqrt(sum(e*e for e in horizontal_errors)/len(horizontal_errors)) if horizontal_errors else None,
+                  max_horizontal_error_m=max(horizontal_errors) if horizontal_errors else None,
+                  mean_z_offset_m=sum(z_offsets)/len(z_offsets) if z_offsets else None,
                   max_pair_timestamp_delta_s=max(time_errors) if time_errors else None)
     output = Path(__file__).resolve().parents[1] / 'sim/generated/validation.json'
     output.parent.mkdir(exist_ok=True, parents=True)

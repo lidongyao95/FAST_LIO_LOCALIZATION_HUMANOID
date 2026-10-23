@@ -1,0 +1,15 @@
+[submodule ".deps/src/Livox-SDK2"]
+	path = .deps/src/Livox-SDK2
+	url = https://github.com/Livox-SDK/Livox-SDK2.git
+[submodule ".deps/src/livox_ros_driver2"]
+	path = .deps/src/livox_ros_driver2
+	url = https://github.com/Livox-SDK/livox_ros_driver2.git
+[submodule ".deps/src/unitree_mujoco"]
+	path = .deps/src/unitree_mujoco
+	url = https://github.com/unitreerobotics/unitree_mujoco.git
+[submodule ".deps/src/unitree_rl_mjlab"]
+	path = .deps/src/unitree_rl_mjlab
+	url = https://github.com/unitreerobotics/unitree_rl_mjlab.git
+[submodule ".deps/src/unitree_sdk2"]
+	path = .deps/src/unitree_sdk2
+	url = https://github.com/unitreerobotics/unitree_sdk2.git
