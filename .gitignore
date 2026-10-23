@@ -1,0 +1,6 @@
+/build/
+/install/
+/log/
+/.deps/
+/sim/generated/
+__pycache__/

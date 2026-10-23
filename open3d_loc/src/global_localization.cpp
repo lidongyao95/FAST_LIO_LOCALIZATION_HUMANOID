@@ -227,6 +227,7 @@ private:
 
     /// @brief 对odom2map进行kalman滤波
     bool filter_odom2map_ = false;
+    bool publish_motion_tf_ = true;
     double kalman_processVar2_ = 0.0;
     double kalman_estimatedMeasVar2_ = 0.0;
 
@@ -265,7 +266,7 @@ GloabalLocalization::GloabalLocalization() : Node("global_loc_node"),
     pub_odom2map_ = this->create_publisher<nav_msgs::msg::Odometry>("/odom2map", 100000);
     pub_odom2map_kalman_ = this->create_publisher<nav_msgs::msg::Odometry>("/odom2map_kalman", 100000);
 
-    pub_map_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/map", 1);
+    pub_map_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/map", rclcpp::QoS(1).transient_local());
     pub_submap_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/submap", 1);
     pub_scan2map_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/scan2map", 1);
     pub_scan_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/scan", 1);
@@ -317,6 +318,7 @@ GloabalLocalization::GloabalLocalization() : Node("global_loc_node"),
     this->declare_parameter<std::vector<double>>("kf_baselink2map/z", std::vector<double>(2));
 
     this->declare_parameter<bool>("filter_odom2map", false);
+    this->declare_parameter<bool>("publish_motion_tf", true);
     this->declare_parameter<double>("kalman_processVar2", 0.02);
     this->declare_parameter<double>("kalman_estimatedMeasVar2", 0.04);
     // voxelsize
@@ -337,6 +339,7 @@ GloabalLocalization::GloabalLocalization() : Node("global_loc_node"),
     this->get_parameter("kf_baselink2map/y", kf_param_y_);
     this->get_parameter("kf_baselink2map/z", kf_param_z_);
     this->get_parameter("filter_odom2map", filter_odom2map_);
+    this->get_parameter("publish_motion_tf", publish_motion_tf_);
     this->get_parameter("kalman_processVar2", kalman_processVar2_);
     this->get_parameter("kalman_estimatedMeasVar2", kalman_estimatedMeasVar2_);
 
@@ -420,6 +423,10 @@ GloabalLocalization::~GloabalLocalization()
     lock_exit_.lock();
     flag_exit_ = true;
     lock_exit_.unlock();
+    if (thread_loc_.joinable())
+    {
+        thread_loc_.join();
+    }
 }
 
 Eigen::Matrix3d GloabalLocalization::Euler2Matrix3d(const Eigen::Vector3d euler)
@@ -579,7 +586,7 @@ void GloabalLocalization::CallbackBaselink2Odom(const nav_msgs::msg::Odometry::S
         transform.transform.translation.y = motionlink2map.pose.pose.position.y;
         transform.transform.translation.z = motionlink2map.pose.pose.position.z;
         transform.transform.rotation = motionlink2map.pose.pose.orientation;
-        br_odom2map_->sendTransform(transform);
+        if (publish_motion_tf_) br_odom2map_->sendTransform(transform);
 
         localization_3d_confidence_.data = loc_fitness_;
         pub_localization_3d_confidence_->publish(localization_3d_confidence_);
@@ -706,6 +713,19 @@ void GloabalLocalization::LocalizationInitialize()
                 source = source->RandomDownSample(double(maxpoints_source_) / source->points_.size());
             }
             open3d::utility::LogInfo("source size: {}, has normal: {}", source->points_.size(), source->HasNormals() ? "true" : "false");
+
+            // FAST-LIO can publish an empty first registered cloud while its map
+            // is still initializing. Open3D ICP throws on empty inputs.
+            if (target->points_.size() < 10 || source->points_.size() < 10)
+            {
+                RCLCPP_WARN_THROTTLE(
+                    this->get_logger(), *this->get_clock(), 2000,
+                    "Skipping localization initialization with empty crop: target=%zu source=%zu",
+                    target->points_.size(), source->points_.size());
+                lock_mat_odom2map_.unlock();
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
 
             source->Transform(reg_matrix);
             *pcd_scan2map = *source;
@@ -943,6 +963,16 @@ void GloabalLocalization::Localization()
                 source = source->RandomDownSample(double(maxpoints_source_) / source->points_.size());
             }
             open3d::utility::LogInfo("after prerpocess: {}", source->points_.size());
+
+            if (target->points_.size() < 10 || source->points_.size() < 10)
+            {
+                RCLCPP_WARN_THROTTLE(
+                    this->get_logger(), *this->get_clock(), 2000,
+                    "Skipping localization update with empty crop: target=%zu source=%zu",
+                    target->points_.size(), source->points_.size());
+                lock_mat_odom2map_.unlock();
+                continue;
+            }
 
             auto reg_result2 = pcd_tools::RegistrationIcp(source, target, voxelsize_fine_ * 2, reg_matrix, 1);
             reg_matrix = reg_result2.transformation_ * reg_matrix;

@@ -2,6 +2,19 @@
 
 - 🎉 **2025-12-01** : ROS2 (Humble) version already supports this , please check the Humble branch.
 
+### Local G1 MuJoCo walking stack
+
+This checkout adds an independently implemented ROS 2 Humble simulation path
+for the official Unitree G1 model, G1 walking controller, sensor bridge,
+FAST-LIO mapping, Open3D relocalization and Nav2. Start with
+[`CONFIGURATION.md`](CONFIGURATION.md) for source provenance, dependency
+versions, configuration profiles and local modifications, then use
+[`NAVIGATION_MANUAL.md`](NAVIGATION_MANUAL.md) for the staged workflow and
+validation scope. In an interactive controller terminal, use `W/S`, `A/D`,
+`Q/E`, space and `1/2/3` for keyboard locomotion and state switching. The
+walking scripts default to NVIDIA PRIME rendering, and mapping/localization
+launches open RViz with live LiDAR and registered point-cloud displays.
+
 ## 0. Highlight
 
 ### 0.0 Pipeline

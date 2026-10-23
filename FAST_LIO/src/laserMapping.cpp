@@ -74,7 +74,7 @@ double kdtree_incremental_time = 0.0, kdtree_search_time = 0.0, kdtree_delete_ti
 double T1[MAXN], s_plot[MAXN], s_plot2[MAXN], s_plot3[MAXN], s_plot4[MAXN], s_plot5[MAXN], s_plot6[MAXN], s_plot7[MAXN], s_plot8[MAXN], s_plot9[MAXN], s_plot10[MAXN], s_plot11[MAXN];
 double match_time = 0, solve_time = 0, solve_const_H_time = 0;
 int kdtree_size_st = 0, kdtree_size_end = 0, add_point_size = 0, kdtree_delete_counter = 0;
-bool runtime_pos_log = false, pcd_save_en = false, time_sync_en = false, extrinsic_est_en = true, path_en = true;
+bool runtime_pos_log = false, pcd_save_en = false, time_sync_en = false, extrinsic_est_en = true, path_en = true, publish_tf_en = true;
 /**************************/
 
 float res_last[100000] = {0.0};
@@ -669,7 +669,7 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
     trans.transform.rotation.x = odomAftMapped.pose.pose.orientation.x;
     trans.transform.rotation.y = odomAftMapped.pose.pose.orientation.y;
     trans.transform.rotation.z = odomAftMapped.pose.pose.orientation.z;
-    tf_br->sendTransform(trans);
+    if (publish_tf_en) tf_br->sendTransform(trans);
 }
 
 void publish_path(rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pubPath)
@@ -683,6 +683,7 @@ void publish_path(rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pubPath)
     jjj++;
     if (jjj % 10 == 0)
     {
+        path.header.stamp = msg_body_pose.header.stamp;
         path.poses.push_back(msg_body_pose);
         pubPath->publish(path);
     }
@@ -816,6 +817,7 @@ public:
     LaserMappingNode(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("laser_mapping", options)
     {
         this->declare_parameter<bool>("publish.path_en", true);
+        this->declare_parameter<bool>("publish.tf_en", true);
         this->declare_parameter<bool>("publish.effect_map_en", false);
         this->declare_parameter<bool>("publish.map_en", false);
         this->declare_parameter<bool>("publish.scan_publish_en", true);
@@ -852,6 +854,7 @@ public:
         this->declare_parameter<vector<double>>("mapping.extrinsic_R", vector<double>());
 
         this->get_parameter_or<bool>("publish.path_en", path_en, true);
+        this->get_parameter_or<bool>("publish.tf_en", publish_tf_en, true);
         this->get_parameter_or<bool>("publish.effect_map_en", effect_pub_en, false);
         this->get_parameter_or<bool>("publish.map_en", map_pub_en, false);
         this->get_parameter_or<bool>("publish.scan_publish_en", scan_pub_en, true);
@@ -922,13 +925,16 @@ public:
 
         /*** debug record ***/
         // FILE *fp;
-        string pos_log_dir = root_dir + "/Log/pos_log.txt";
+        auto debug_log_dir = this->declare_parameter<std::string>(
+            "debug_log_dir", root_dir + "/Log");
+        if (debug_log_dir.empty()) debug_log_dir = root_dir + "/Log";
+        string pos_log_dir = debug_log_dir + "/pos_log.txt";
         fp = fopen(pos_log_dir.c_str(), "w");
 
         // ofstream fout_pre, fout_out, fout_dbg;
-        fout_pre.open(DEBUG_FILE_DIR("mat_pre.txt"), ios::out);
-        fout_out.open(DEBUG_FILE_DIR("mat_out.txt"), ios::out);
-        fout_dbg.open(DEBUG_FILE_DIR("dbg.txt"), ios::out);
+        fout_pre.open(debug_log_dir + "/mat_pre.txt", ios::out);
+        fout_out.open(debug_log_dir + "/mat_out.txt", ios::out);
+        fout_dbg.open(debug_log_dir + "/dbg.txt", ios::out);
         if (fout_pre && fout_out)
             cout << "~~~~" << ROOT_DIR << " file opened" << endl;
         else
