@@ -293,3 +293,10 @@ ros2 run tf2_ros tf2_echo map base_footprint
 如果机器人不运动，先检查 `controller_mode=3`、`released=true`、定位置信度不低于
 `0.6`、`odom_fresh=true` 和 `nav_ready=true`。定位漂移或代价地图持续报告越界时，
 应停止导航并重新启动定位，而不是只重启 Nav2。
+
+## 8. 使用真机扫描生成的仿真场景
+
+[扫描场景与 RViz 导航指南](g1_real_robot_docs/scan_mujoco_preview.md)复用本手册第 4 节启动顺序。
+先生成场景和配对地图，再用 `start_walking_sim.sh --model-path ...` 加载场景，
+定位与导航分别显式传入对应 `map_ply`、`map_yaml`。地面扩展和碰撞体素属于仿真近似，
+不能直接作为真机导航验收结果。

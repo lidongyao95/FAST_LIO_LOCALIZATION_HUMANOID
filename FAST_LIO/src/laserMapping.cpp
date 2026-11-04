@@ -81,6 +81,8 @@ float res_last[100000] = {0.0};
 float DET_RANGE = 300.0f;
 const float MOV_THRESHOLD = 1.5f;
 double time_diff_lidar_to_imu = 0.0;
+// Raw sensor input only: rotate LiDAR and IMU together about X by pi.
+bool input_roll_180 = false;
 
 mutex mtx_buffer;
 condition_variable sig_buffer;
@@ -308,6 +310,8 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
 
     PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
     p_pre->process(msg, ptr);
+    if (input_roll_180)
+        for (auto &point : ptr->points) { point.y = -point.y; point.z = -point.z; }
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(cur_time);
     last_timestamp_lidar = cur_time;
@@ -350,6 +354,8 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg)
 
     PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
     p_pre->process(msg, ptr);
+    if (input_roll_180)
+        for (auto &point : ptr->points) { point.y = -point.y; point.z = -point.z; }
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(last_timestamp_lidar);
 
@@ -363,6 +369,21 @@ void imu_cbk(const sensor_msgs::msg::Imu::UniquePtr msg_in)
     publish_count++;
     // cout<<"IMU got at: "<<msg_in->header.stamp.toSec()<<endl;
     sensor_msgs::msg::Imu::SharedPtr msg(new sensor_msgs::msg::Imu(*msg_in));
+
+    if (input_roll_180)
+    {
+        msg->angular_velocity.y *= -1;
+        msg->angular_velocity.z *= -1;
+        msg->linear_acceleration.y *= -1;
+        msg->linear_acceleration.z *= -1;
+        // FAST-LIO uses angular velocity and acceleration, not orientation.
+        const double sign[3] = {1, -1, -1};
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) {
+                msg->angular_velocity_covariance[3*i+j] *= sign[i]*sign[j];
+                msg->linear_acceleration_covariance[3*i+j] *= sign[i]*sign[j];
+            }
+    }
 
     msg->header.stamp = get_ros_time(get_time_sec(msg_in->header.stamp) - time_diff_lidar_to_imu);
     if (abs(timediff_lidar_wrt_imu) > 0.1 && time_sync_en)
@@ -827,6 +848,7 @@ public:
         this->declare_parameter<string>("map_file_path", "");
         this->declare_parameter<string>("common.lid_topic", "/livox/lidar");
         this->declare_parameter<string>("common.imu_topic", "/livox/imu");
+        this->declare_parameter<bool>("common.input_roll_180", false);
         this->declare_parameter<bool>("common.time_sync_en", false);
         this->declare_parameter<double>("common.time_offset_lidar_to_imu", 0.0);
         this->declare_parameter<double>("filter_size_corner", 0.5);
@@ -864,6 +886,7 @@ public:
         this->get_parameter_or<string>("map_file_path", map_file_path, "");
         this->get_parameter_or<string>("common.lid_topic", lid_topic, "/livox/lidar");
         this->get_parameter_or<string>("common.imu_topic", imu_topic, "/livox/imu");
+        this->get_parameter_or<bool>("common.input_roll_180", input_roll_180, false);
         this->get_parameter_or<bool>("common.time_sync_en", time_sync_en, false);
         this->get_parameter_or<double>("common.time_offset_lidar_to_imu", time_diff_lidar_to_imu, 0.0);
         this->get_parameter_or<double>("filter_size_corner", filter_size_corner_min, 0.5);
@@ -914,6 +937,14 @@ public:
 
         Lidar_T_wrt_IMU << VEC_FROM_ARRAY(extrinT);
         Lidar_R_wrt_IMU << MAT_FROM_ARRAY(extrinR);
+        if (input_roll_180)
+        {
+            const M3D mounting_rotation = (V3D(1, -1, -1)).asDiagonal();
+            // Config extrinsics remain in the original raw sensor coordinates.
+            Lidar_T_wrt_IMU = mounting_rotation * Lidar_T_wrt_IMU;
+            Lidar_R_wrt_IMU = mounting_rotation * Lidar_R_wrt_IMU * mounting_rotation.transpose();
+            RCLCPP_WARN(this->get_logger(), "Raw LiDAR + IMU roll-180 compensation enabled; do not also rotate in driver");
+        }
         p_imu->set_extrinsic(Lidar_T_wrt_IMU, Lidar_R_wrt_IMU);
         p_imu->set_gyr_cov(V3D(gyr_cov, gyr_cov, gyr_cov));
         p_imu->set_acc_cov(V3D(acc_cov, acc_cov, acc_cov));

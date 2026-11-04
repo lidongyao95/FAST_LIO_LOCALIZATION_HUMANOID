@@ -1,6 +1,7 @@
 # G1 真机调试记录
 
 - [2026-11-04 G1 真机 SLAM 调试记录](2026-11-04_g1_pc2_slam.md)
+- [2026-11-04 Ubuntu 倒装回放与扫描场景导航](2026-11-04_scan_navigation.md)
 - [当前验证状态](../README.md)
 - [PC2 单机与 B300 部署指南](../g1_real_robot_slam_pc2_b300_guide.md)
 

@@ -9,5 +9,9 @@ for required in walking-sim walking-controller walking-localization; do
         exit 1
     fi
 done
-test -s sim/generated/room.yaml || { echo 'Occupancy map missing; generate scene first'; exit 1; }
+MAP_FILE="$G1_REPO/sim/generated/room.yaml"
+for argument in "$@"; do
+    case "$argument" in map_yaml:=*) MAP_FILE="${argument#map_yaml:=}" ;; esac
+done
+test -s "$MAP_FILE" || { echo "Map missing: $MAP_FILE" >&2; exit 1; }
 exec ros2 launch open3d_loc g1_navigation.launch.py "repo:=$G1_REPO" "$@"

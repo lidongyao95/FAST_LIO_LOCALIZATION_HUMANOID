@@ -17,3 +17,11 @@
 Ubuntu 本地回放与实时查看见 [部署指南附录 A.1](g1_real_robot_slam_pc2_b300_guide.md#a1-在-ubuntu-本地查看现有录包)。
 
 本轮复核细节见 [换电前后对时记录](debug_log/2026-11-04_g1_pc2_slam.md)。
+
+## Ubuntu 离线回放与扫描场景仿真
+
+- [倒装输入补偿与离线回放](inverted_mid360.md)
+- [扫描场景的 MuJoCo 与 RViz 导航](scan_mujoco_preview.md)
+- [2026-11-04 本地仿真调试记录](debug_log/2026-11-04_scan_navigation.md)
+
+以上为本地离线/仿真流程，不改变上表真机验收状态。

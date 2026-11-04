@@ -6,3 +6,6 @@
 !/.deps/src/*
 /sim/generated/
 __pycache__/
+
+# Local real-robot bags, replay logs and derived scan artifacts.
+/tmp/

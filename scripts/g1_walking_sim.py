@@ -2,7 +2,6 @@
 """Single MuJoCo owner; official low-level DDS + independent ROS sensors."""
 import argparse
 import ctypes
-import os
 import math
 import time
 import numpy as np
@@ -17,8 +16,10 @@ from g1_mujoco_sensors import Sensors, generate, ROOT
 
 class WalkingSim(Sensors):
     def __init__(self, domain, start_x=0., start_y=0., start_yaw=0.,
-                 obstacle_x=2.2, obstacle_y=.4):
-        super().__init__()
+                 obstacle_x=2.2, obstacle_y=.4, model_path=None):
+        super().__init__(model_path=model_path)
+        if model_path is not None:
+            self.groups[3] = 1  # Scan collision voxels are sensor-visible.
         self.model.qpos0[0:2]=[start_x,start_y]
         self.model.qpos0[3:7]=[math.cos(start_yaw/2),0.,0.,math.sin(start_yaw/2)]
         support=self.model.body('support')
@@ -97,14 +98,17 @@ def main():
     p.add_argument('--start-yaw',type=float,default=0.)
     p.add_argument('--obstacle-x',type=float,default=2.2)
     p.add_argument('--obstacle-y',type=float,default=.4)
+    p.add_argument('--model-path', help='Existing MJCF scene; skip default room generation')
     args=p.parse_args()
-    generate();rclpy.init()
+    if args.model_path is None: generate()
+    rclpy.init()
     node=WalkingSim(args.domain,args.start_x,args.start_y,args.start_yaw,
-                    args.obstacle_x,args.obstacle_y)
+                    args.obstacle_x,args.obstacle_y,args.model_path)
     viewer=None
     if not args.headless:
         import mujoco.viewer
         viewer=mujoco.viewer.launch_passive(node.model,node.data);viewer.cam.distance=7;viewer.cam.lookat[:]=[0,0,1]
+        if args.model_path: viewer.opt.geomgroup[3]=0
     start=time.monotonic();next_view=start
     try:
         while rclpy.ok() and (viewer is None or viewer.is_running()):

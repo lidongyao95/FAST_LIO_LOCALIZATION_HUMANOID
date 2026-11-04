@@ -11,5 +11,9 @@ for required in walking-sim walking-controller; do
         exit 1
     fi
 done
-test -s sim/generated/room.ply || { echo 'Room map missing; start simulation first'; exit 1; }
+MAP_FILE="$G1_REPO/sim/generated/room.ply"
+for argument in "$@"; do
+    case "$argument" in map_ply:=*) MAP_FILE="${argument#map_ply:=}" ;; esac
+done
+test -s "$MAP_FILE" || { echo "Map missing: $MAP_FILE" >&2; exit 1; }
 exec ros2 launch open3d_loc g1_walking_localization.launch.py "repo:=$G1_REPO" "$@"
