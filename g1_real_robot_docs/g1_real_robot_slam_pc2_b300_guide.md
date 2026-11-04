@@ -2,25 +2,24 @@
 
 从理解系统到传感器接入、建图、重定位与自主导航。
 
-更新日期：2026-11-04。本文面向第一次将本仓库从 MuJoCo 搬到 G1 教育版（EDU）真机的读者。部署基线已改为**机载 PC2 单机运行**（ROS 2 Humble）；外部 x86 服务器与 Ubuntu 4060 笔记本只作为备选算力和查看终端，服务器方案改用网线直连，不再默认走无线。
+更新日期：2026-11-04。默认在机载 **PC2（Jetson Orin NX、ARM64、Ubuntu 20.04.6、ROS 2 Foxy）** 上运行。Mac 通过有线 SSH 操作。外部服务器和 Ubuntu 笔记本是备选算力。
 
-**当前状态：本文根据仓库源码整理，尚未进行真机验收。** 建图与定位章节提供候选操作步骤及检查方法；真机导航还缺少独立的速度桥、TF 适配和启动入口。导航章节完整解释如何补齐和验证这些接口，不将尚不存在的程序写成可以直接运行的命令。本次文档修订没有编译、连接设备或发送运动命令。PC2 能否满足负载、B300 门口的建图与重定位效果，都尚未实测；第 6 章和第 7 章给出判断方法。
+**先看 [真机验证状态](README.md)。** 已实测 SSH、驱动与 FAST-LIO 构建、MID-360 点云与 IMU 录包、静止实时里程计。B300 正式地图、独立重定位、持续负载与运动导航仍待验收。第 7～10 章保留接口设计和候选步骤，当前 PC2 overlay 尚无 `open3d_loc` 或 `nav2_bringup`。
 
 ## 0. 本次现场决策
 
-以下安排沿用原稿记载的 2026-11-04 现场讨论，作为本项目的部署选择；本次源码核实未取得独立的设备或场地确认记录，不能据此认定 PC2 或真机接口已验收。操作前填写下表；未取得的信息保持“待确认”。
+| 项目 | 当前依据与状态 |
+|---|---|
+| G1 型号与自由度 | OTA 包名标识 G1 Edu+，LowState 观测支持 29 DOF，`mode_machine=5`。序列号、整机/运控版本与锁腰状态待现场确认。 |
+| PC2 单机 | SSH、系统架构、驱动和 FAST-LIO 构建已复核，持续负载与散热待实测。 |
+| B300 门口演示与提前建图 | 场地范围、现场条件和 A/B 段采集待确认。 |
+| 运控与停止 | `LocoClient` 只读查询有成功记录。速度写入权限、实际动作、停止与遥控接管待现场验证。 |
 
-| 项目 | 当前依据与状态 | 确认人 / 日期 / 记录位置 |
-|---|---|---|
-| G1 为 EDU | 原稿现场讨论记载；型号、自由度和序列号待现场复核 | 待填写 |
-| PC2 单机为主 | 项目部署选择；是否配备、系统、架构和持续负载待核实 | 待填写 |
-| B300 门口演示与提前建图 | 原稿场景安排；场地许可、范围、门窗状态待复核 | 待填写 |
-| 控制接口与停止方式 | 本地 SDK 有候选接口；固件支持和实际行为待验收 | 待填写 |
-| 人员与保护方案 | 需按该机型厂家规程和现场条件确定，尚无验收记录 | 待填写 |
+证据见 [调试记录](debug_log/README.md)。
 
 ### 0.1 算力：以 PC2 单机为主
 
-原稿将机器人记为 **G1 教育版（EDU）**，本文据此准备 PC2 单机路线。EDU 名称不能证明具体 PC2 配置或接口权限；型号、机载电脑、自由度、固件版本和开发者权限均按第 0 章记录现场复核。
+当前按第 0 节的实机配置部署。PC2 已跑通静止感知链路，定位、Nav2 和持续负载按后续阶段验证。
 
 - **不再把服务器作为默认方案。** 把一楼服务器搬上来、拉网线、维护两套环境都很麻烦，先把驱动、FAST-LIO、定位和 Nav2 全部放在 PC2 上跑。
 - **估计 PC2 够用**，但这是估计，不是实测结论。第 4.1 节先核实 PC2 的系统与架构，第 6.6 节和第 11 章用实际负载、时延和地图质量判断是否真的够用。
@@ -120,15 +119,15 @@ MID-360 → Livox 驱动 → 点云 + IMU → FAST-LIO → 局部里程计、扫
 
 | 能力 | 仓库现状 | 真机状态 |
 |---|---|---|
-| FAST-LIO 建图、保存 PCD | 有实现和仿真使用流程 | 传感器、时间、外参及效果待验证 |
+| FAST-LIO 建图、保存 PCD | 有实现和仿真使用流程 | 静止实时里程计已发布。正式建图、安装外参和地图质量待验收。 |
 | Open3D 已知地图定位 | 有实现和仿真入口 | 有历史 G1 配置，但路径与坐标假设待修订和验证 |
 | PCD 转 PLY、PGM、YAML | 有导出脚本 | 投影假设需要结合实景检查 |
 | Nav2 规划、避障和目标导航 | 有仿真配置与启动脚本 | 不能直接作为实机入口 |
 | Nav2 到 G1 官方高层运控 | 有可参考的 SDK 接口 | 本仓库缺少经过真机验收的专用速度桥 |
 | 真机 TF、机器人轮廓、障碍处理 | 仿真有对应实现 | 需要独立适配 |
-| PC2 单机部署 | 当前依赖脚本针对 x86_64 | 系统与架构待核实；构建、性能、散热与磁盘待验证 |
+| PC2 单机部署 | Foxy / ARM64 上已构建 Livox 驱动与 FAST-LIO | 持续负载、散热、完整定位与导航待验收 |
 
-本文使用三个状态标签：**源码已核对**表示代码中存在该行为；**候选步骤**表示尚未现场跑通；**待实现**表示需要开发。源码存在和程序启动都不等于真机效果通过验收。
+本文同时使用实机记录中的**已实测**状态。其余三个状态标签：**源码已核对**表示代码中存在该行为；**候选步骤**表示尚未现场跑通；**待实现**表示需要开发。源码存在和程序启动都不等于真机效果通过验收。
 
 ## 2. 先理解够用的基础概念
 
@@ -166,7 +165,7 @@ Nav2 的常见地面导航流程使用二维栅格地图。每个格子表示已
 | Action | 可反馈、可取消的长任务 | 导航到某个目标 |
 | TF | 不同坐标系之间的变换 | 地图、机体和雷达的位置关系 |
 | QoS | 发布者与订阅者如何交付数据 | 可靠性、队列、历史数据保留 |
-| `/clock` | 仿真或回放使用的时钟 | `ros2 bag play --clock` |
+| `/clock` | 仿真或回放使用的时钟 | 支持该选项的 rosbag2 可用 `ros2 bag play --clock`；本机 Foxy 无此选项 |
 
 消息格式必须匹配：CustomMsg 不是 PointCloud2，只改话题名字不会改变格式。QoS 也可能影响是否收到消息，遇到空话题时要同时看类型和 QoS。
 
@@ -182,22 +181,20 @@ Nav2 的常见地面导航流程使用二维栅格地图。每个格子表示已
 
 ### 3.1 先填写设备清单
 
-下表中的 IP 来自本地历史配置或原文示例，**不是所有 G1 的固定地址**。部署前由现场配置确认。
+下表记录本机已知地址与备选设备。更换机器人或网卡时重新核对。
 
 | 项目 | 示例或候选值 | 现场需要记录 |
 |---|---|---|
-| G1 型号 | G1 教育版（EDU），原稿记载待复核 | 自由度、固件版本、开发者权限、随机资料 |
+| G1 型号 | OTA 标识 G1 Edu+，LowState 支持 29 DOF | 序列号、固件版本、开发者权限、随机资料 |
 | 运控电脑 | `192.168.123.161` | 实际网络与可用高层接口 |
-| 开发电脑 PC2（本次主力） | `192.168.123.164`，架构待核实 | 是否配备、账号权限、系统、架构、CPU/内存/磁盘、散热、能否接显示器 |
+| 开发电脑 PC2（本次主力） | `192.168.123.164`，Orin NX / aarch64 / Foxy | 持续负载、散热、能否接显示器 |
 | 雷达 | MID-360，`192.168.123.120` | 型号、序列号、实际 IP、安装方向 |
 | 备选服务器 | 现在在一楼，x86_64 Ubuntu 22.04 | 是否搬上楼、网线走向、ROS 版本、磁盘 |
 | 备选笔记本 | Ubuntu + RTX 4060 | 系统版本、网口或 USB 网卡、散热、供电 |
-| 驱动接收地址 | `192.168.123.222/24` | 地址是否空闲、在哪台机器的哪块网卡 |
+| 驱动接收地址 | `192.168.123.164` | PC2 `eth0`，配置已复核 |
 | 物理连接 | PC2 与雷达同一网段；备选方案用网线 | 网口开放情况、供电、固定方式 |
 
-按原稿 EDU 型号准备第 9 章高层运控与 PC2 路线，设备身份和配置仍需现场记录。但“教育版”不等于所有固件和 SDK 方法都已开放，仍要现场核对固件版本、开发者模式和接口支持范围。
-
-不要根据 PC2 的历史地址推断当前机器一定可登录。PC2 是本次唯一的算力，更要先确认能登录、能安装依赖、能连续满载运行，而不是只看它能开机。
+当前可用公钥登录：`ssh unitree@192.168.123.164`。现场待确认项见 [硬件清单](debug_log/README.md#硬件确认清单现场填写)。
 
 ### 3.2 部署方案比较与本次选择
 
@@ -219,7 +216,7 @@ Nav2 的常见地面导航流程使用二维栅格地图。每个格子表示已
 1. 先确认 PC2 到底卡在哪里：是 CPU 满载、内存不足、磁盘写满，还是依赖装不上。不要因为一次建图慢就直接搬服务器。
 2. 规划服务器位置：靠近机器人活动区域、有市电、通风、不会被踢到；网线沿墙或走线槽固定，跨通道处加线槽或胶带压平，避免绊人和被机器人压断。
 3. 服务器加一块与雷达同网段的网卡，或在同一交换机上接雷达和服务器；接收地址改成该网卡地址（示例 `.222`）。**不要改服务器默认路由**，保留原来的上网和 SSH 路径。
-4. 服务器仍是 x86_64 Ubuntu 22.04 时，可按第 4 章核对依赖和动态库后准备；执行机器从 PC2 换成服务器，地图和录包路径按服务器磁盘调整。
+4. 服务器仍是 x86_64 Ubuntu 22.04 时，可按[通用部署笔记](g1_real_robot_slam_notes.md)第 4 章准备 x86 工作区；执行机器从 PC2 换成服务器，地图和录包路径按服务器磁盘调整。
 5. 服务器与 PC2 若同时在线，只能有一台接收雷达 UDP，避免两个驱动争用或互相改写雷达目标地址。
 
 如果网线长度、走线条件或供电不允许，就不要勉强搬服务器，回到 PC2 或笔记本方案。
@@ -228,7 +225,7 @@ Nav2 的常见地面导航流程使用二维栅格地图。每个格子表示已
 
 笔记本有两种用法，不能混为一谈。
 
-- **只做查看终端：** 在笔记本上装 ROS 2 Humble，通过同一 ROS 域订阅 PC2 的话题运行 RViz。此时笔记本不需要 Livox SDK 和雷达网段，但需要正确的 DDS 配置、防火墙放行和版本匹配。
+- **只做查看终端：** 在笔记本上装 ROS 2 Humble，在域、RMW、消息定义和跨发行版互操作性实测通过后订阅 PC2 的话题运行 RViz。此时笔记本不需要 Livox SDK 和雷达网段，但需要正确的 DDS 配置、防火墙放行和版本匹配。
 - **临时承担算力：** 用有线网口或 USB/Type-C 网卡接入雷达网段，确认能收到 UDP 后再装驱动和算法。注意合盖休眠、电源管理和散热，长时间满载时插电并垫高。
 
 RTX 4060 的 GPU 对 FAST-LIO 和 Open3D 配准帮助有限，这条链路主要吃 CPU 单核与内存带宽。不要假设“4060 一定比 PC2 快”，应实测帧率、延迟和积压。Ubuntu 版本要与 ROS 2 发行版匹配，避免在演示前临时升级系统。
@@ -283,130 +280,43 @@ Mac / Windows ──SSH / 远程桌面──→ 服务器（备选算力）→ �
 
 ### 4.1 统一目录和终端环境
 
-以下变量在**每个需要使用它们的新终端**中设置，示例目录按本机实际路径填写：
+在 PC2 的新 Bash 终端执行。源码与录包目录分开，避免同步代码时覆盖数据。
 
 ```bash
-export G1_REPO=/home/sjtu/ldy/FAST_LIO_LOCALIZATION_HUMANOID
-export G1_REAL_WS="$G1_REPO/tmp/g1_real_ws"
-export G1_DATA="$G1_REPO/tmp/g1_real_data"
-```
-
-`G1_REAL_WS` 放独立驱动；`G1_DATA` 放配置、录包、地图和验收记录。录包体积较大，正式采集前确认磁盘空间，并决定是否迁移到专用数据盘。
-
-上面的路径来自开发机示例；在 PC2 上按实际用户名和仓库位置填写，不要把 `/home/sjtu/ldy` 当成 PC2 的固定路径。PC2 的系统盘往往不大，先运行 `df -h` 看清剩余空间；录包写满磁盘会同时破坏采集数据和系统运行。
-
-理解三个目录：`src` 是源码，`build` 是编译中间文件，`install` 是运行时加载的程序和配置。`source` 将某个工作区加入当前终端环境；后加载的同名包可能覆盖前一个包。
-
-### 4.2 在 PC2 上准备现有工作区
-
-**候选步骤。** 首先按仓库的 [CONFIGURATION.md](../CONFIGURATION.md) 第 3 节安装 ROS 2 Humble 与系统依赖。已完成构建时不必重复初始化。
-
-先核对架构：
-
-```bash
-uname -m
-```
-
-同时记录 `cat /etc/os-release`、`printenv ROS_DISTRO`、`/usr/bin/python3 --version`，核对 ROS 2 Humble、系统依赖和安装权限。输出 `x86_64` 时可以评估下面的现有脚本，但仍需检查系统、ABI 和动态库，不能仅凭架构相同认定可用。输出 `aarch64` 时，现有准备、构建和运行环境中的 x86 路径不适用：**停在环境准备阶段，不执行下面的脚本，也不继续照抄第 5 章。** ARM64 本机构建与运行入口尚待补齐和验证，附录 A 仅列迁移要求。
-
-```bash
-cd "$G1_REPO"
-./scripts/setup_g1_local_deps.sh
-./scripts/build_g1_ros2.sh
-```
-
-这两个脚本准备的是现有仓库环境，包含仿真 Python 依赖；MuJoCo 不是实机 SLAM 必需组件。构建不会自动启动控制器。系统依赖的预先安装可能需要 sudo；`setup_g1_local_deps.sh` 自身使用 `apt-get download` 和 `dpkg-deb -x` 将部分库下载、解包到 `.deps`，并在仓库内安装 Livox SDK，不执行 `sudo apt install`。它还会初始化子模块、覆盖驱动 `package.xml` 和 `launch/` 副本，执行前审阅已有本地修改。PC2 若不能上网，先准备依赖或离线包。
-
-构建完成后，运行终端使用：
-
-```bash
-export ROS_DOMAIN_ID=72
+export G1_REPO="$HOME/FAST_LIO_LOCALIZATION_HUMANOID"
+export G1_DATA="$HOME/g1_real_data"
+export ROS_DISTRO=foxy ROS_DOMAIN_ID=72 ROS_LOCALHOST_ONLY=1
 source "$G1_REPO/scripts/walking_env.sh"
-export ROS_LOCALHOST_ONLY=1
-mkdir -p "$G1_DATA/config" "$G1_DATA/bags" "$G1_DATA/maps" "$G1_DATA/records"
-printf 'domain=%s rmw=%s localhost=%s\n' \
-  "$ROS_DOMAIN_ID" "$RMW_IMPLEMENTATION" "$ROS_LOCALHOST_ONLY"
-ros2 pkg prefix fast_lio
-ros2 pkg prefix open3d_loc
-```
-
-`walking_env.sh` 是本仓库的 x86 运行环境入口，会清理 overlay 和部分路径，并切到仓库目录；必须先构建，不能当作任意机器的通用环境脚本。它仅在未设置域时回退到 72，所以这里显式设置。
-
-本章的 `ROS_LOCALHOST_ONLY=1` 假定 RViz 也在 PC2 运行（可接显示器或通过远程桌面查看）。若 RViz 放在 4060 笔记本，则应设计跨主机 ROS 配置，而不是继续照用本机设置。
-
-### 4.3 固定并记录版本与资源
-
-```bash
-cd "$G1_REPO"
-git rev-parse HEAD
-git status --short
-git submodule status
-uname -m
-printenv ROS_DISTRO
-nproc
-free -h
-df -h
-```
-
-把输出保存在本次记录中。本次审阅主仓库为 `022afb832d0dd4d7f67d06796d3f6194a859b4f2`；驱动候选来源是本地历史提交 `e4234d4e559548bfe0afdf407990bfb206e183c0` 中的 `livox_ros_driver2/`。这些是文档依据，不要求读者强行切换当前主仓库。
-
-PC2 的 CPU 核数、内存和磁盘余量决定了它能跑多少节点。如果 `nproc` 只有 4～6 核、内存 8 GB，就要在第 6 章实时建图时重点观察是否积压；不要用开发服务器上的表现推断 PC2。
-
-### 4.4 选择驱动，先明确坐标约定
-
-**源码已核对：** 历史提交 `e4234d4e559548bfe0afdf407990bfb206e183c0` 的 `livox_ros_driver2/src/comm/pub_handler.cpp:137–177` 在 IMU 回调里旋转角速度和加速度，点云路径也有外参变换，JSON 配置有 `roll: 180.0`。当前 `.deps/src/livox_ros_driver2` 是另一份来源。不能混用不同版本配置，也不能仅因雷达倒装就同时在多层补偿。下方 `HUMBLE_ROS=humble` 是该历史版 CMake 使用的开关，不要机械改成其他版本的开关。
-
-有两种可选思路：保留传感器原始坐标、由外参描述安装；或让驱动转换到约定的输出坐标，再同步修改算法外参。实际使用哪一种，必须追踪驱动点云路径与 IMU 路径后确定。下面保留历史修改版作为候选，**不表示其倒装配置已通过本机标定**。
-
-在没有既有 `src/livox_ros_driver2` 的独立目录中导出：
-
-```bash
-export G1_DRIVER_REV=e4234d4e559548bfe0afdf407990bfb206e183c0
-mkdir -p "$G1_REAL_WS/src"
-git -C "$G1_REPO" cat-file -e "$G1_DRIVER_REV:livox_ros_driver2/package_ROS2.xml"
-git -C "$G1_REPO" archive "$G1_DRIVER_REV" livox_ros_driver2 \
-  | tar -x -C "$G1_REAL_WS/src"
-cp "$G1_REAL_WS/src/livox_ros_driver2/package_ROS2.xml" \
-   "$G1_REAL_WS/src/livox_ros_driver2/package.xml"
-```
-
-若目录已经存在，先核对其中的本地修改，不重复导出覆盖。不要同时在同一个 colcon 构建中发现两份同名驱动。
-
-修改导出的 `launch_ROS2/msg_MID360_launch.py` 中的 `Node(...)`，保留原参数并添加：
-
-```python
-remappings=[('/livox/lidar', '/livox/custom_msg')],
-```
-
-该历史 launch 的 `xfer_format=1` 输出 CustomMsg，`publish_freq=10.0`。修改 `config/MID360_config.json` 的接收地址为实际运行驱动的主机地址；点云、IMU、命令等 IP 字段要逐项核对，不能只改其中一个。
-
-确认点云和 IMU 输出坐标的处理后，再决定是否保留配置中的 180° 旋转。将选用方案写入记录，不能在后续 FAST-LIO/TF 中再无意补偿一次。
-
-在一个未加载其他 workspace 的构建终端中编译：
-
-```bash
-source /opt/ros/humble/setup.bash
-cd "$G1_REAL_WS"
-colcon build --base-paths src/livox_ros_driver2 \
-  --packages-select livox_ros_driver2 --cmake-args \
-  -DROS_EDITION=ROS2 -DHUMBLE_ROS=humble \
-  -DLIVOX_LIDAR_SDK_LIBRARY="$G1_REPO/.deps/sdk/lib/liblivox_lidar_sdk_shared.so" \
-  -DLIVOX_LIDAR_SDK_INCLUDE_DIR="$G1_REPO/.deps/sdk/include"
-```
-
-这里的 `-DLIVOX_LIDAR_SDK_LIBRARY` 指向仓库 `.deps` 中的预编译库。先在 PC2 上确认它的架构与 `uname -m` 一致（可用 `file` 或 `readelf -h` 查看）；ARM64 不能加载 x86_64 的 `.so`，需要在 PC2 上重新编译 Livox-SDK2，再把路径改成新库。交叉编译只在确有工具链经验时使用，本文不把未经验证的交叉编译当作默认步骤。
-
-运行时，在第 4.2 节环境后额外加载驱动 overlay：
-
-```bash
-source "$G1_REAL_WS/install/local_setup.bash"
 ros2 pkg prefix livox_ros_driver2
+ros2 pkg prefix fast_lio
 ros2 interface show livox_ros_driver2/msg/CustomMsg
 ```
 
-采集和回放相关终端采用同一套 overlay 顺序。首次更换驱动版本要核对 CustomMsg 与 CustomPoint 定义，不能仅凭包名相同假设兼容。JSON 和 launch 从安装目录加载，修改源码后需要重新构建；后文直接传给节点的源码 YAML 则不需要因参数编辑而重编译。
+本机安装包应分别解析到 `$G1_REPO/install/livox_ros_driver2` 与 `$G1_REPO/install/fast_lio`。各采集终端和本机 RViz 使用相同域与 overlay。跨主机 RViz 另按附录 A 验证。
 
-**本章通过条件：** 包解析路径正确，消息可加载，动态库无缺失，并保留构建日志。失败时先解决依赖或 overlay，不进入传感器和运动实验。
+### 4.2 在 PC2 上准备现有工作区
+
+当前 PC2 已构建，可直接做包检查。需要重建时，先确认 PC2 部署副本保留第 4.4 节的两处驱动配置、系统依赖和本机编译的 Livox-SDK2 1.3.1，再从干净的 Bash 执行：
+
+```bash
+cd "$HOME/FAST_LIO_LOCALIZATION_HUMANOID"
+ROS_DISTRO=foxy G1_BUILD_PACKAGES="livox_ros_driver2 fast_lio" ./scripts/build_g1_ros2.sh
+```
+
+Foxy 适配与 SDK 版本冲突见 [部署与构建记录](debug_log/2026-11-04_g1_pc2_slam.md)。现有 `open3d_loc`、`nav2_bringup` 在 PC2 环境中均无法解析。定位依赖与 Nav2 版本另行解决，备选 x86/Humble 工作区见附录 B。
+
+### 4.3 固定并记录版本与资源
+
+PC2 上是 rsync 部署副本。同步时从开发机记录 Git HEAD、未提交改动、依赖版本及驱动配置差异，在 PC2 保存 `uname -m`、`cat /etc/os-release`、`/usr/bin/python3 --version`、`df -h` 和构建日志。本次复核盘上剩余约 1.8 TiB。
+
+### 4.4 选择驱动，先明确坐标约定
+
+实机使用 `$G1_REPO/.deps/src/livox_ros_driver2`，由同一工作区安装。安装副本已核对：
+
+- `config/MID360_config.json` 中雷达地址为 `192.168.123.120`，五个 `host_net_info` 接收地址均为 PC2 的 `192.168.123.164`，JSON 外参为零。
+- `launch_ROS2/msg_MID360_launch.py` 使用 `xfer_format=1`、`frame_id='livox_frame'`，并将 `/livox/lidar` 重映射为 `/livox/custom_msg`。配置含义见 [Livox 官方驱动说明](https://github.com/Livox-SDK/livox_ros_driver2)。
+
+同步代码前保存这两处 PC2 改动。更改驱动源码配置后重新构建并检查安装副本。历史驱动中的 180° 补偿属于另一版本。当前零外参仅描述驱动配置，雷达实际安装方向、FAST-LIO 外参与导航机体变换仍需现场核对。
 
 ## 5. 接入雷达，确认输入可以用于算法
 
@@ -421,7 +331,7 @@ ping -c 20 192.168.123.120
 ss -ulpn
 ```
 
-这里的 IP 是示例，按第 3.1 节记录替换。历史 JSON 使用 56101、56201、56301、56401 等主机端口；只搜索 `563` 会漏掉 IMU 和控制端口。还要检查 PC2 或其他主机是否已有接收程序，以及它们是否会重新配置雷达的目标地址。
+这些是本机实测地址。安装 JSON 使用 56101、56201、56301、56401、56501；只搜索 `563` 会漏掉 IMU 和控制端口。还要检查 PC2 或其他主机是否已有接收程序，以及它们是否会重新配置雷达的目标地址。
 
 `ping` 成功只说明 ICMP 可达，不说明雷达 UDP 已到达正确端口。收不到数据时检查目的 IP、路由、端口占用、防火墙和驱动日志；需要时在指定网卡抓包观察，不先重装算法。
 
@@ -439,16 +349,9 @@ ros2 launch livox_ros_driver2 msg_MID360_launch.py
 ros2 topic list -t
 ros2 topic info /livox/custom_msg --verbose
 ros2 topic info /livox/imu --verbose
-ros2 topic hz /livox/custom_msg
 ```
 
-最后一条持续运行，观察一段时间后 Ctrl-C，再检查 IMU：
-
-```bash
-ros2 topic hz /livox/imu
-```
-
-频率工具测到的是该订阅端收到数据的节奏。频率低可能来自发布配置、QoS、CPU 负载、网络、驱动缓冲或诊断工具开销，不应直接归因于丢包。
+本机 Foxy 的 `ros2 topic hz` 曾超时无输出。以短包的 `ros2 bag info` 计数和时长作为复核依据，`static_01` 已记录点云 115 条和 IMU 2306 条。消息头的连续性与主机对时分开验收，见 [静止录包复核](debug_log/2026-11-04_g1_pc2_slam.md)。
 
 ### 5.3 话题与坐标对照表
 
@@ -483,20 +386,22 @@ ros2 topic echo /livox/custom_msg --field point_num --once
 
 `mid360.yaml` 的 `time_sync_en=false`、时间偏移 0 只表达当前设置，不证明传感器已经同步。不要遇到漂移就随意启用软件时间补偿。
 
+正式录制前执行 `timedatectl`、`chronyc tracking`、`chronyc sources`，记录同步状态与偏差。PC2 曾慢约 680 秒，换电重启后恢复同步。每次正式采集前复查主机状态，再核对传感器时间基准、帧内逐点时间和动态对齐。见 [换电前后对时记录](debug_log/2026-11-04_g1_pc2_slam.md)。
+
 ### 5.5 先录两段短数据，再开始正式采集
 
-先确认 `$G1_DATA` 所在分区有空余空间（`df -h`），并观察 PC2 的温度和风扇。录包要写 PC2 本地磁盘，不要写到网络共享或慢速 U 盘；磁盘写满或写入阻塞，首先表现为丢帧和时延，而不是明显的报错。
+已有 `$G1_DATA/bags/static_01`。复录时使用新目录名。先确认 `$G1_DATA` 所在分区有空余空间（`df -h`），并观察 PC2 的温度和风扇。录包要写 PC2 本地磁盘，不要写到网络共享或慢速 U 盘；磁盘写满或写入阻塞，首先表现为丢帧和时延，而不是明显的报错。
 
 终端 R 使用相同 overlay：
 
 ```bash
-ros2 bag record -o "$G1_DATA/bags/static_01" /livox/custom_msg /livox/imu
+ros2 bag record -o "$G1_DATA/bags/static_02" /livox/custom_msg /livox/imu
 ```
 
 现场保持静止，记录一段足够观察时间连续性的数据后 Ctrl-C，等待录制器退出，再检查：
 
 ```bash
-ros2 bag info "$G1_DATA/bags/static_01"
+ros2 bag info "$G1_DATA/bags/static_02"
 ```
 
 随后用新目录录一次短距离遥控运动，包含直行、缓慢转向和停止。若 recorder 与发布者 QoS 不兼容，先根据 `topic info --verbose` 制定录包 QoS 覆盖文件，并确认实际录入消息，不能只看录制进程存在。
@@ -545,12 +450,13 @@ ros2 bag record -o "$G1_DATA/bags/map_A_01" /livox/custom_msg /livox/imu
 
 ### 6.3 离线运行 FAST-LIO
 
-以下三个终端都加载第 4 章运行环境。终端 M 先运行算法：
+以下三个终端都加载第 4 章运行环境。终端 M 先创建输出目录，再运行算法：
 
 ```bash
+mkdir -p "$G1_DATA/maps" "$G1_DATA/records"
 ros2 run fast_lio fastlio_mapping --ros-args \
   --params-file "$G1_DATA/config/mid360_real.yaml" \
-  -p use_sim_time:=true \
+  -p use_sim_time:=false \
   -p map_file_path:="$G1_DATA/maps/b300_door_01.pcd" \
   -p debug_log_dir:="$G1_DATA/records"
 ```
@@ -559,7 +465,7 @@ ros2 run fast_lio fastlio_mapping --ros-args \
 
 ```bash
 rviz2 -d "$G1_REPO/FAST_LIO/rviz/fastlio.rviz" \
-  --ros-args -p use_sim_time:=true
+  --ros-args -p use_sim_time:=false
 ```
 
 若 PC2 没有接显示器，先按附录 A 选择远程桌面或笔记本跨主机 RViz，再执行；不要在无显示环境下反复启动 `rviz2` 并把它当作程序故障。
@@ -567,10 +473,10 @@ rviz2 -d "$G1_REPO/FAST_LIO/rviz/fastlio.rviz" \
 建图时 Fixed Frame 使用 `camera_init`，检查显示订阅的是本节实际输出话题。终端 P 最后开始回放：
 
 ```bash
-ros2 bag play "$G1_DATA/bags/map_A_01" --clock
+ros2 bag play "$G1_DATA/bags/map_A_01"
 ```
 
-回放使用 `use_sim_time=true`，实时使用 `false`。不要让多个播放器同时发布 `/clock`。首次以正常速度回放；若出现处理积压，先记录负载和延迟，再降低回放速度做离线对照，不能把慢速回放成功当作实时能力已满足。
+本机 Foxy 的播放器没有 `--clock`。此处使用原始消息头做 FAST-LIO 离线处理。历史 TF 用于可视化时，需单独验证 RViz 对历史时间戳的处理。首次以正常速度回放；若出现处理积压，先记录负载和延迟，再降低回放速度做离线对照，不能把慢速回放成功当作实时能力已满足。
 
 ### 6.4 保存并读回地图
 
@@ -621,6 +527,8 @@ ls -lh "$G1_DATA/maps/b300_door_01.pcd"
 实时数据比慢速回放更容易暴露积压，必须单独验收。
 
 ## 7. 加载地图，验证重定位与实时定位
+
+第 7 章是定位适配参考。当前 PC2 缺少 `open3d_loc`，且 Foxy 的播放器不提供下文使用的 `--clock`。正式执行前须补齐依赖并验证所选定位栈的回放时钟方案。
 
 ### 7.1 先理解当前入口的坐标假设
 
@@ -689,7 +597,7 @@ ros2 run open3d_loc global_localization_node --ros-args \
 终端 L3 运行 RViz，启用回放时间，Fixed Frame 设为 `map`，添加重映射后的地图和扫描；终端 L4 最后播放独立 B 段：
 
 ```bash
-ros2 bag play "$G1_DATA/bags/loc_B_01" --clock
+ros2 bag play "$G1_DATA/bags/loc_B_01" --clock # 仅限支持 --clock 的 rosbag2
 ```
 
 B 段建议从 B300 门口标记点、演示时的朝向开始录制；这样既能验证初值，也能直接复现演示的定位过程。若沿用原组合 launch，需先完成路径与 TF 修改、重新构建，并确认 `/rviz_map_cur` 的 `use_sim_time=true`；原 RViz 节点没有显式设置该参数。
@@ -731,7 +639,7 @@ ros2 run tf2_ros tf2_echo map odom
 
 ## 8. 让定位与地图满足导航接口
 
-本章开始进入**待适配/待实现**部分。Nav2 的部署需要机器人模型/TF、里程计和传感器输入等配套条件，可结合 [Nav2 官方首次机器人配置指南](https://docs.nav2.org/rolling/configuration_and_development/first_time_robot_setup_guide/) 理解整体接口；链接当前为 rolling，具体参数必须以本机 Humble 安装版本为准。
+本章开始进入**待适配/待实现**部分。Nav2 的部署需要机器人模型/TF、里程计和传感器输入等配套条件，可结合 [Nav2 官方首次机器人配置指南](https://docs.nav2.org/rolling/configuration_and_development/first_time_robot_setup_guide/) 理解整体接口；链接当前为 rolling，具体参数按实际选定的 Nav2 发行版核对。
 
 ### 8.1 导航需要什么 TF
 
@@ -938,8 +846,8 @@ free -h
 df -h
 ```
 
-- **x86_64：** 按第 4 章核对系统和动态库后评估现有脚本；同架构不保证二进制兼容。
-- **ARM64：** 不能运行 x86 二进制；依赖脚本和 `walking_env.sh` 中的 x86 库路径都不适用。需要在本机安装对应架构的 ROS、Livox-SDK2、FAST-LIO、Open3D 和 Unitree SDK，重新构建驱动，不能靠复制 `.so` 解决。
+- **备选 x86_64：** 按[通用部署笔记](g1_real_robot_slam_notes.md)第 4 章核对系统与动态库；同架构不保证二进制兼容。
+- **本机 ARM64：** 已用 Foxy 与 ARM64 库构建驱动和 FAST-LIO。Open3D、定位和 Nav2 按实际发行版与 ABI 单独验证。
 
 部署要点：
 
@@ -968,11 +876,53 @@ MID-360 → PC2（驱动 + FAST-LIO + 定位 + Nav2）
 
 机载运行减少了雷达原始数据对外部网络的依赖，但不自动解决外部控制断链或算力不足。PC2 长时间满载前要确认风扇、供电和磁盘余量；断电或重启后重新检查驱动、网络和 overlay。
 
+### A.1 在 Ubuntu 本地查看现有录包
+
+适合把机器人录到的数据拷到已部署本项目的 Ubuntu 电脑上检查。Ubuntu 端需能解析 `livox_ros_driver2` 和 `fast_lio`，且 CustomMsg 与录包版本兼容。回放时只启动 FAST-LIO、播放器和 RViz。
+
+先从 Ubuntu 电脑复制整个录包目录及参数。以下目录可按本机实际路径调整：
+
+```bash
+mkdir -p "$HOME/g1_real_data/bags" "$HOME/g1_real_data/config" "$HOME/g1_real_data/records"
+scp -r unitree@192.168.123.164:/home/unitree/g1_real_data/bags/static_01 "$HOME/g1_real_data/bags/"
+scp unitree@192.168.123.164:/home/unitree/g1_real_data/config/mid360_real.yaml "$HOME/g1_real_data/config/"
+```
+
+Ubuntu 的三个 Bash 终端都加载本机工作区，使用同一个域：
+
+```bash
+export G1_REPO="$HOME/FAST_LIO_LOCALIZATION_HUMANOID"
+export G1_DATA="$HOME/g1_real_data"
+export ROS_DOMAIN_ID=193 ROS_LOCALHOST_ONLY=1
+source "$G1_REPO/scripts/walking_env.sh"
+```
+
+1. 终端一启动 FAST-LIO，关闭 PCD 保存。
+   ```bash
+   ros2 run fast_lio fastlio_mapping --ros-args \
+     --params-file "$G1_DATA/config/mid360_real.yaml" \
+     -p use_sim_time:=false -p pcd_save.pcd_save_en:=false \
+     -p debug_log_dir:="$G1_DATA/records"
+   ```
+2. 在 Ubuntu 图形桌面的终端二打开 RViz。
+   ```bash
+   rviz2 -d "$G1_REPO/FAST_LIO/rviz/fastlio.rviz"
+   ```
+   确认 **Fixed Frame = `camera_init`**，启用 **PointCloud2 → `/cloud_registered_1`**。该话题是 FAST-LIO 配准后的点云，原始 `/livox/custom_msg` 是 Livox 自定义类型。若要看里程计，把配置的 Odometry 话题改为 `/Odometry_loc`。
+3. 终端三用 `ros2 bag info "$G1_DATA/bags/static_01"` 验证播放器能读取包，再启动回放：
+   ```bash
+   ros2 bag play "$G1_DATA/bags/static_01"
+   ```
+
+若窗口没有点云，先看 FAST-LIO 日志有没有完成 IMU 初始化，再用 `ros2 topic info /cloud_registered_1 --verbose` 检查发布者和 QoS。点云显示可以只保留同坐标系的 PointCloud2，便于排除历史 TF 对其他显示项的影响。PC2 Foxy 已实测录包回放，以及实时模式下的点云发布，外部 Ubuntu 的本机包兼容性及 RViz 窗口待在该电脑上核对。
+
+实时查看时，最直接的入口是在 **PC2 的 Ubuntu 图形桌面**打开同一个 RViz 配置（可通过远程桌面操作），另用 PC2 终端按第 5.2 节启动驱动，再运行上述 FAST-LIO 命令。三个终端使用同一 PC2 域。若把 RViz 放在另一台 Ubuntu 上，按本附录前文核对 DDS 发现，并在 Ubuntu 端用 `ros2 topic info /cloud_registered_1 --verbose` 确认可见发布者后再看画面。
+
 ## 附录 B：外部服务器与 4060 笔记本（备选）
 
 ### B.1 外部服务器
 
-切换条件、布线和单一接收端要求统一见第 3.3 节；仅在 PC2 依赖或持续负载不满足时启用。按第 4 章在服务器重新核对系统、构建、动态库和数据目录，不复制 PC2 的构建产物，也不因 x86_64 架构相同跳过依赖检查。
+切换条件、布线和单一接收端要求统一见第 3.3 节；仅在 PC2 依赖或持续负载不满足时启用。按[通用部署笔记](g1_real_robot_slam_notes.md)第 4 章在服务器核对系统、构建、动态库和数据目录，不复制 PC2 的构建产物，也不因 x86_64 架构相同跳过依赖检查。
 
 切换后停止 PC2 上的驱动和算法，确认雷达目标 IP 与服务器网卡一致；运动控制主机切换还需重新确认 SDK 网卡、控制权和停止路径。将切换前后配置、代码版本和地图校验值归档。
 
@@ -1017,7 +967,7 @@ MID-360 → PC2（驱动 + FAST-LIO + 定位 + Nav2）
 | `scripts/export_g1_map.py` | 投影、空闲区域假设和地图元数据 |
 | `scripts/g1_nav_tf.py` | 仿真平面化逻辑，仅供真机设计参考 |
 | `navigation/g1_nav2_params.yaml` | 仿真 Nav2 参数起点 |
-| `scripts/walking_env.sh` | 当前 x86 运行环境与域设置 |
+| `scripts/walking_env.sh` | Foxy/Humble 运行环境与域设置 |
 | `.deps/src/unitree_sdk2/include/unitree/robot/g1/loco/g1_loco_client.hpp` | 本地固定版本高层控制接口 |
 
 外部资料：2026-11-04 核实阶段查阅了 Livox 和 Unitree 官方仓库；Nav2 TF 指南访问未成功，Nav2 外链及 Humble 适用性尚待复核。[Livox 官方驱动说明](https://github.com/Livox-SDK/livox_ros_driver2)用于核对驱动格式与配置入口；[Nav2 首次配置指南](https://docs.nav2.org/rolling/configuration_and_development/first_time_robot_setup_guide/)用于整体接口；[Unitree 官方 G1 LocoClient](https://github.com/unitreerobotics/unitree_sdk2/blob/main/include/unitree/robot/g1/loco/g1_loco_client.hpp)用于控制接口阅读。在线 main/rolling 会变化，操作以本机固定版本及现场设备支持范围为准。开源许可和二进制分发范围按各组件固定版本的许可证核对，本文不使用“整套完全开源”的概括。

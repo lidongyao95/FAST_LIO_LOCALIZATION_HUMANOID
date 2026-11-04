@@ -10,14 +10,32 @@ LIVOX_LIB="$DEPS/sdk/lib/liblivox_lidar_sdk_shared.so"
 
 cd "$REPO_ROOT"
 
-if [[ "$(uname -m)" != "x86_64" ]]; then
-    echo "Only x86_64 is currently validated; found $(uname -m)" >&2
+ARCH="$(uname -m)"
+case "$ARCH" in
+    x86_64|aarch64) ;;
+    *)
+        echo "Unsupported architecture: $ARCH (expected x86_64 or aarch64)" >&2
+        exit 1
+        ;;
+esac
+if [[ -n "${ROS_DISTRO:-}" && -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
+    G1_ROS_DISTRO="$ROS_DISTRO"
+elif [[ -f /opt/ros/humble/setup.bash ]]; then
+    G1_ROS_DISTRO=humble
+elif [[ -f /opt/ros/foxy/setup.bash ]]; then
+    G1_ROS_DISTRO=foxy
+else
+    echo "ROS 2 Humble/Foxy is missing; install it before configuring local dependencies" >&2
     exit 1
 fi
-if [[ ! -f /opt/ros/humble/setup.bash ]]; then
-    echo "ROS 2 Humble is missing; install it before configuring local dependencies" >&2
-    exit 1
-fi
+case "$G1_ROS_DISTRO" in
+    humble) EXPECTED_PYTHON=3.10 ;;
+    foxy) EXPECTED_PYTHON=3.8 ;;
+    *)
+        echo "Unsupported ROS 2 distro: $G1_ROS_DISTRO" >&2
+        exit 1
+        ;;
+esac
 
 missing=()
 for command_name in apt-get git cmake g++ make dpkg-deb ldd; do
@@ -30,15 +48,19 @@ if ((${#missing[@]})); then
 fi
 
 python_version="$(/usr/bin/python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-if [[ "$python_version" != "3.10" ]]; then
-    echo "Expected /usr/bin/python3 3.10 for ROS 2 Humble; found $python_version" >&2
+if [[ "$python_version" != "$EXPECTED_PYTHON" ]]; then
+    echo "Expected /usr/bin/python3 $EXPECTED_PYTHON for ROS 2 ${G1_ROS_DISTRO}; found $python_version" >&2
     exit 1
 fi
 
 echo "[1/4] Initialize source submodules"
-git submodule sync --recursive
-git submodule update --init --recursive
-git submodule status --recursive
+if [[ -d .git ]]; then
+    git submodule sync --recursive
+    git submodule update --init --recursive
+    git submodule status --recursive
+else
+    echo "No .git directory (copied tree); using the submodule sources already present"
+fi
 
 livox_driver="$DEPS/src/livox_ros_driver2"
 cp -f "$livox_driver/package_ROS2.xml" "$livox_driver/package.xml"
@@ -79,6 +101,7 @@ if ! python_packages_ok >/dev/null 2>&1; then
 fi
 python_packages_ok
 
+if [[ "$ARCH" == "x86_64" ]]; then
 echo "[3/4] Configure Open3D C++ library"
 open3d_runtime_ok() {
     [[ -f "$OPEN3D_LIB" && -f "$OPEN3D_CONFIG" ]] || return 1
@@ -118,6 +141,9 @@ if ! open3d_runtime_ok; then
     LD_LIBRARY_PATH="$DEPS/root/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}" \
         ldd "$OPEN3D_LIB" | grep 'not found' >&2
     exit 1
+fi
+else
+    echo "[3/4] Skip Open3D C++ library on ${ARCH}: no packaged 0.14 build; open3d_loc is not built here"
 fi
 
 echo "[4/4] Build and install Livox SDK2"
