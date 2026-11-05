@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Clean stamped, world-frame LiDAR scans with DUFOMap 1.1.1."""
 import argparse
+import math
 from pathlib import Path
 
 import numpy as np
 
 
-def clean(scans):
+def clean(scans, *, d_s=0.2, d_p=2):
     from dufomap import dufomap
 
-    mapper = dufomap(0.1, 0.2, 2, num_threads=4)
+    if not math.isfinite(d_s) or d_s < 0 or d_p < 0:
+        raise ValueError("DUFOMap requires nonnegative d_s and d_p")
+    mapper = dufomap(0.1, d_s, d_p, num_threads=4)
     frames = []
     for points, pose in scans:
         points = np.ascontiguousarray(points, dtype=np.float32)
@@ -61,7 +64,11 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--revisit-after", type=int, metavar="STAMP_NS",
                         help="Require early points to be corroborated by a separate clear revisit")
+    parser.add_argument("--d-s", type=float, default=0.2, help="DUFOMap sensor noise margin in metres")
+    parser.add_argument("--d-p", type=int, default=2, help="DUFOMap pose uncertainty margin in voxels")
     args = parser.parse_args()
+    if not math.isfinite(args.d_s) or args.d_s < 0 or args.d_p < 0:
+        parser.error("--d-s and --d-p must be nonnegative and finite")
     paths = scan_paths(args.scans)
     corroborate = None
     if args.revisit_after is not None:
@@ -74,7 +81,7 @@ def main():
 
     kept = []
     total = 0
-    for path, (points, mask) in zip(paths, clean(read_scans(paths))):
+    for path, (points, mask) in zip(paths, clean(read_scans(paths), d_s=args.d_s, d_p=args.d_p)):
         total += len(points)
         if corroborate is not None and int(path.stem) < args.revisit_after:
             # Do not use the surveyed obstacle locations. Require independent
