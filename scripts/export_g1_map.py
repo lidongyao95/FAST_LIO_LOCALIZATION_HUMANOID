@@ -33,7 +33,9 @@ def read_pcd(path):
         return xyz[np.isfinite(xyz).all(axis=1)]
 
 def export(source, out, resolution, known_free_radius, *, floor_band=.15,
-           obstacle_min=.2, obstacle_max=1.8, max_range=None):
+           obstacle_min=.2, obstacle_max=1.8, max_range=None, floor_model='percentile'):
+    if floor_model not in ('percentile', 'plane'):
+        raise ValueError('Floor model must be percentile or plane')
     values = (resolution, known_free_radius, floor_band, obstacle_min, obstacle_max)
     if not all(map(math.isfinite, values)):
         raise ValueError('Projection parameters must be finite')
@@ -52,6 +54,18 @@ def export(source, out, resolution, known_free_radius, *, floor_band=.15,
         raise ValueError('Too few points remain for occupancy projection')
     z_percentiles = dict(zip(('5', '50', '95'), map(float, np.percentile(projected[:, 2], [5, 50, 95]))))
     floor_z=z_percentiles['5']
+    floor_fit = None
+    if floor_model == 'plane':
+        from g1_scan_scene import floor_transform
+
+        # Fit a bounded sample, then classify the full projection by signed distance.
+        stride = max(1, math.ceil(len(projected) / 120_000))
+        _, _, floor_fit = floor_transform(projected[::stride])
+        normal = np.asarray(floor_fit['normal'])
+        floor_z = float(-floor_fit['plane_offset_m'] / normal[2])
+        above_floor = projected @ normal + floor_fit['plane_offset_m']
+    else:
+        above_floor = projected[:, 2] - floor_z
     ox=float(np.floor((projected[:,0].min()-.5)/resolution)*resolution)
     oy=float(np.floor((projected[:,1].min()-.5)/resolution)*resolution)
     width=int(np.ceil((projected[:,0].max()+.5-ox)/resolution))
@@ -61,8 +75,8 @@ def export(source, out, resolution, known_free_radius, *, floor_band=.15,
     iy=np.floor((projected[:,1]-oy)/resolution).astype(int)
     floor=np.zeros((height,width),np.uint8)
     obstacle=np.zeros_like(floor)
-    floor_mask=np.abs(projected[:,2]-floor_z)<floor_band
-    obstacle_band=(projected[:,2]>floor_z+obstacle_min)&(projected[:,2]<floor_z+obstacle_max)
+    floor_mask=np.abs(above_floor)<floor_band
+    obstacle_band=(above_floor>obstacle_min)&(above_floor<obstacle_max)
     floor[iy[floor_mask],ix[floor_mask]]=1
     obstacle[iy[obstacle_band],ix[obstacle_band]]=1
     cover=cv2.dilate(floor,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(int(.8/resolution)//2*2+1,)*2))
@@ -94,6 +108,8 @@ def export(source, out, resolution, known_free_radius, *, floor_band=.15,
           'origin_cell': origin_cell,
           'free_cells':int((image==254).sum()),
           'occupied_cells':int((image==0).sum()),'unknown_cells':int((image==205).sum())}
+    if floor_fit is not None:
+        meta.update(floor_model=floor_model, floor_fit=floor_fit)
     (out/'metadata.json').write_text(json.dumps(meta,indent=2))
     print(json.dumps(meta,indent=2))
 
@@ -106,11 +122,14 @@ def main():
     p.add_argument('--obstacle-min', type=float, default=.2, help='Minimum obstacle height above estimated ground')
     p.add_argument('--obstacle-max', type=float, default=1.8, help='Maximum obstacle height above estimated ground')
     p.add_argument('--max-range', type=float, help='Limit 2D projection to this radius in metres around the mapping start')
+    p.add_argument('--floor-model', choices=('percentile', 'plane'), default='percentile',
+                   help='Use plane for a tilted, predominantly planar indoor floor')
     args=p.parse_args()
     try:
         export(args.pcd, args.out, args.resolution, args.known_free_radius,
                floor_band=args.floor_band, obstacle_min=args.obstacle_min,
-               obstacle_max=args.obstacle_max, max_range=args.max_range)
+               obstacle_max=args.obstacle_max, max_range=args.max_range,
+               floor_model=args.floor_model)
     except ValueError as error:
         p.error(str(error))
 if __name__=='__main__':main()

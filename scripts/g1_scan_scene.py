@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import numpy as np
-import mujoco
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -247,6 +246,8 @@ def export_navigation(out, collision, radius):
 
 
 def main():
+    import mujoco
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--pcd",
