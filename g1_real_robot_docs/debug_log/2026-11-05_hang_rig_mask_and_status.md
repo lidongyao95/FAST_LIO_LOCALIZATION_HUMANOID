@@ -73,7 +73,7 @@
 | `0ca4ad6` | `preprocess.mask_boxes` 雷达坐标系掩膜 |
 | `95087d8` | 掩膜实验记录 |
 
-提交前在两端独立目录 `~/ldy/review-verify` 编译 `fast_lio` 与 `open3d_loc`。运行用例先回放录包建图并调用 `/map_save`，再用保存的地图做 Open3D 定位初始化。掩膜分支启用 A 盒。
+提交前在两端独立目录 `~/ldy/review-verify`（验证后已删除）编译 `fast_lio` 与 `open3d_loc`。运行用例先回放录包建图并调用 `/map_save`，再用保存的地图做 Open3D 定位初始化。掩膜分支启用 A 盒。
 
 | 环境 | 录包 | 编译 | 定位 fitness，主仓库提交 / 掩膜分支 |
 | --- | --- | --- | --- |
@@ -87,15 +87,14 @@
 | 位置 | 内容 | 性质 |
 | --- | --- | --- |
 | Mac `~/Desktop/code/SLAM/FAST_LIO_LOCALIZATION_HUMANOID` | `g1-slam` 仓库，`.deps` 约 752 MB，`tmp/g1_real_data` 含 `static_01` 副本 | 主仓库 |
-| Mac `~/Desktop/code/SLAM/g1_a_segment_2026-11-05/hang_A_02` | `bags` 1.3 GB 原始录包，`maps`、`preview`、`records`，`dufomap_review` 约 110 MB | 数据与中间产物 |
-| Mac `~/Desktop/code/SLAM/g1_dufomap_4322_preview` | 仿真截图与指标，约 2.3 MB | 演示产物 |
+| Mac `~/Desktop/code/SLAM/g1_a_segment_2026-11-05/hang_A_02` | `bags` 1.3 GB 原始录包，`maps`、`preview`、`records`。`dufomap_review` 只保留 `mask_review`，约 16 MB | 数据与中间产物 |
 | PC2 `~/ldy/FAST_LIO_LOCALIZATION_HUMANOID` | rsync 部署副本，非 git。源码同步到 `g1-slam`，`fast_lio` 与 `open3d_loc` 已重编，依赖齐全，掩膜参数可加载 | 部署 |
 | PC2 `~/ldy/g1_real_data` | `bags` 的 `hang_A_02`、`orient_01`、`orient_02`、`static_01`，以及 `maps`、`records`、`config`，约 2.4 GB | 正式数据 |
-| PC2 `~/ldy/vendor`、`~/ldy/open3d141_arm.zip` | ARM Open3D 解包目录与原始压缩包 | 依赖 |
-| PC2 `~/ldy/{review-verify,dufomap-foxy-review,a-segment-review.rnAh6N,g1-nav-*}` | 隔离构建与验证目录 | 临时 |
+| PC2 `~/ldy/vendor` | ARM Open3D 解包目录。原始压缩包已删除，来源与 SHA-256 见[排障记录](2026-11-05_pc2_build_pitfalls.md) | 依赖 |
+| PC2 `~/ldy/{dufomap-foxy-review,a-segment-review.rnAh6N,g1-nav-*}` | 隔离构建与验证目录 | 临时 |
 | 4322 `~/ldy/FAST_LIO_LOCALIZATION_HUMANOID` | git 仓库，`g1-slam`，安装目录仍为 11-04 构建 | 部署 |
 | 4322 `~/ldy/g1_a_replay/hang_A_02` | `hang_A_02` 录包副本 1.3 GB，预览包与二维图 | 数据副本 |
-| 4322 `~/ldy/{dufomap-sim.WWmdzT,dufomap-real-hang-A-02,dufomap-mask-review,review-verify,FAST_LIO-humble-review.qR6RmX,g1-nav-*}` | 仿真、回放、对照与验证目录，约 2.3 GB | 临时 |
+| 4322 `~/ldy/{dufomap-sim.WWmdzT,dufomap-real-hang-A-02,dufomap-mask-review,FAST_LIO-humble-review.qR6RmX,g1-nav-*}` | 仿真、回放与对照目录，约 2.3 GB | 临时 |
 | 云端 `lidongyao95/FAST_LIO_LOCALIZATION_HUMANOID` | 仅 `g1-slam`，为默认分支。原 `main` 是上游 README 更新，保留在 `deepglint/FAST_LIO_LOCALIZATION_HUMANOID` | 远端 |
 
 4322 的 `~/ldy` 还有 `robotwin`、`NavDP`、`_wrtc` 等其他项目目录，不属于本仓库。
