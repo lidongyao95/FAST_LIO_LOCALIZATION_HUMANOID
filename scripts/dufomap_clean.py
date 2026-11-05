@@ -32,8 +32,12 @@ def clean(scans):
         yield points, labels == 0
 
 
-def read_scans(directory):
-    for path in sorted(directory.glob("*.npz"), key=lambda path: int(path.stem)):
+def scan_paths(directory):
+    return sorted(directory.glob("*.npz"), key=lambda path: int(path.stem))
+
+
+def read_scans(paths):
+    for path in paths:
         with np.load(path) as frame:
             yield frame["points"], frame["pose"]
 
@@ -55,11 +59,28 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("scans", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--revisit-after", type=int, metavar="STAMP_NS",
+                        help="Require early points to be corroborated by a separate clear revisit")
     args = parser.parse_args()
+    paths = scan_paths(args.scans)
+    corroborate = None
+    if args.revisit_after is not None:
+        from scipy.spatial import cKDTree
+
+        revisit = [p for p in paths if int(p.stem) >= args.revisit_after]
+        if len(revisit) < 2 or len(paths) - len(revisit) < 2:
+            parser.error("At least two scans are required in each pass")
+        corroborate = cKDTree(np.concatenate([p for p, _ in read_scans(revisit)]))
+
     kept = []
     total = 0
-    for points, mask in clean(read_scans(args.scans)):
+    for path, (points, mask) in zip(paths, clean(read_scans(paths))):
         total += len(points)
+        if corroborate is not None and int(path.stem) < args.revisit_after:
+            # Do not use the surveyed obstacle locations. Require independent
+            # returns from the revisit within 1.5 map voxels of an earlier hit.
+            distance, _ = corroborate.query(points[mask], distance_upper_bound=.15)
+            mask[mask] = np.isfinite(distance)
         kept.append(points[mask])
     points = np.concatenate(kept)
     write_pcd(args.output, points)

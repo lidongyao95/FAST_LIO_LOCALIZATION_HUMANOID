@@ -73,3 +73,44 @@ XYZ，`pose` 是同坐标系下的雷达起点和单位四元数。调用使用�
 该 MuJoCo 工况是固定支撑位置下撤走临时箱体，覆盖范围与相对转向场景的关系
 由上面的合成射线试验验证。真实吊架、真机采集、PC2/Foxy 以及清理后独立重定位
 尚未验证。
+
+## 随机障碍闭环复扫和 RViz 验收
+
+`scripts/dufomap_loop_sim.py` 让 MuJoCo 的支撑式 G1 传感器沿闭合轨迹走两圈，
+首圈在四个区域内随机选取箱体位置并分时刷新，次圈箱体退场后复扫。采集和
+FAST-LIO 处理真实仿真的 LiDAR/IMU 消息。箱体位置仅写入验收文件，清理脚本
+只读取点云、位姿和清场复扫的时间边界。闭环采集采用支撑轨迹，RViz 验收采用
+行走控制器和独立重定位。
+
+第一终端启动 FAST-LIO，第二终端将采集参数改为 `--frames 610 --timeout 90`，
+第三终端运行以下命令，每个种子用独立目录。
+
+```bash
+python scripts/dufomap_loop_sim.py "$RUN/truth.json" --seed 4322 --speed 1.5 \
+  | tee "$RUN/sim.log"
+stamp=$(sed -n 's/^CLEAR_PASS_NS=//p' "$RUN/sim.log")
+python scripts/dufomap_clean.py "$RUN/scans" "$RUN/clean.pcd" --revisit-after "$stamp"
+python scripts/check_dufomap_loop.py "$RUN" --revisit-after "$stamp"
+```
+
+`--revisit-after` 启用第二道检查。DUFOMap 按自由空间证据剔除动态点后，首圈保留点
+还需要与复扫点在 0.15 m 内相互印证。验收脚本把只用复扫得到的二维图作为参照，
+区分临时箱体的假占用和邻近固定障碍投影膨胀出的占用。保持默认的 10 cm 栅格、
+障碍高度带和零起点填补半径。
+
+| 随机种子 | 箱体范围内的三维障碍高度带回波 | 箱体附近二维占用 | 清理后多出的二维占用 |
+| --- | ---: | ---: | ---: |
+| 4322 | 56,835 → 0 | 144 → 0 | 0 |
+| 9417 | 55,573 → 0 | 152 → 7 | 0 |
+
+9417 剩余的 7 个占用格同样出现在复扫参照图，是相邻固定障碍投影的占用。
+两轮在障碍高度带以下仍分别留有 210、218 个近地回波。本结论覆盖两次
+随机场景和一次无临时障碍的复扫流程，依赖复扫覆盖和 FAST-LIO 配准质量。
+
+交互验证使用首个种子的 `clean-map/map.ply` 与 `clean-map/map.yaml`，
+按正常顺序启动行走仿真、Open3D 和 Nav2。走行仿真的障碍层使用
+`/livox/lidar` 的 `PointCloud2`，坐标为已有 TF 的 `lidar_link`。
+只在此次仿真通过 `params_file:=` 传入该覆盖，避免使用缺少动态 TF 的
+`body` 扫描作为代价地图输入。原会话的 RViz 点击能送达 BT Navigator，
+其失败日志来自地图规划。新图上的首次实际 RViz 点击由约 (0.37, -0.21)
+发往 (2.01, -0.24)，收到 `Goal succeeded`，实际移动约 1.44 m。
