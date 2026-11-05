@@ -74,13 +74,14 @@ ros2 bag record -o "$G1_DATA/bags/hang_A_01" /livox/lidar /livox/imu
 
 **离线分支。** 在隔离 ROS 域检查自定义消息兼容性和 `ros2 bag play -h`，先启动 FAST-LIO，再播放本轮 A 包。PC2 Foxy 已有不带 `--clock` 的静止回放记录；此处仅做使用原始消息头的 FAST-LIO 建图。跨节点按时间查 TF 的回放在 B/C 段另行复核，降低回放速率的结果单独标注。
 
-两个分支均可用以下建图命令。示例输出名按本轮替换，先核对目标不存在、配置中的 `pcd_save.pcd_save_en` 已打开、目标目录可写。参数文件用仓库内置的 [mid360.yaml](../../FAST_LIO/config/mid360.yaml)，其中 `lid_topic` 仍是 `/livox/custom_msg`，与实际话题不一致时在命令行上重映射：`-r /livox/custom_msg:=/livox/lidar`。保留 `lidar_type: 1`，该参数使节点订阅 `CustomMsg` 并进入 `avia_handler`。
+两个分支均可用以下建图命令，示例启用第二台 G1 已实测的倒装补偿。实时分支也可用[采集脚本](2026-11-05_a_segment_open_items.md#pc2-采集入口)统一管理建图与录包。示例输出名按本轮替换，先核对目标不存在、配置中的 `pcd_save.pcd_save_en` 已打开、目标目录可写。参数文件用仓库内置的 [mid360.yaml](../../FAST_LIO/config/mid360.yaml)，其中 `lid_topic` 仍是 `/livox/custom_msg`，与实际话题不一致时在命令行上重映射：`-r /livox/custom_msg:=/livox/lidar`。保留 `lidar_type: 1`，该参数使节点订阅 `CustomMsg` 并进入 `avia_handler`。
 
 ```bash
 ros2 run fast_lio fastlio_mapping --ros-args \
   --params-file "$G1_REPO/FAST_LIO/config/mid360.yaml" \
   -r /livox/custom_msg:=/livox/lidar \
   -p use_sim_time:=false \
+  -p common.input_roll_180:=true -p common.check_imu_z_up:=true \
   -p map_file_path:="$G1_DATA/maps/office_01.pcd" \
   -p debug_log_dir:="$G1_DATA/records"
 ```
