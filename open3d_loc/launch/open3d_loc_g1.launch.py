@@ -23,8 +23,12 @@ def generate_launch_description():
         'loc_param_g1.yaml'
     ])
 
-    # 地图文件路径 - 使用绝对路径指向源码目录中的地图文件
-    map_file = '/home/sax/GO2_Localization_ROS2/src/GO2_Localization_ROS2/data/1.test.ply'
+    # 地图文件路径由调用方给出，仓库不内置地图
+    path_map_arg = DeclareLaunchArgument(
+        'path_map',
+        description='Absolute path of the localization map (PCD or PLY)'
+    )
+    map_file = LaunchConfiguration('path_map')
 
     # 静态TF发布节点 - camera_init to odom
     static_tf_camera_init2odom = Node(
@@ -106,6 +110,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         use_sim_time_arg,
+        path_map_arg,
         static_tf_camera_init2odom,
         static_tf_imulink2baselink,
         static_tf_base_center,

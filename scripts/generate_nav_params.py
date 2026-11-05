@@ -20,10 +20,13 @@ for name in ('local_costmap','global_costmap'):
     obs=cost['obstacle_layer'] if name=='global_costmap' else {'plugin':'nav2_costmap_2d::ObstacleLayer','enabled':True}
     obs['observation_sources']='lidar'
     obs.pop('scan',None)
-    obs['lidar']={'topic':'/livox/lidar','data_type':'PointCloud2','marking':True,'clearing':True,
+    # Keep the Foxy range keys alongside the Humble min/max keys.
+    obstacle_max_range, raytrace_max_range = 8.0, 9.0
+    obs['lidar']={'topic':'/cloud_registered_body_1','data_type':'PointCloud2','marking':True,'clearing':True,
                   'min_obstacle_height':.15,'max_obstacle_height':1.8,
-                  'obstacle_min_range':.4,'obstacle_max_range':8.,
-                  'raytrace_min_range':.4,'raytrace_max_range':9.}
+                  'obstacle_range':obstacle_max_range,'raytrace_range':raytrace_max_range,
+                  'obstacle_min_range':.4,'obstacle_max_range':obstacle_max_range,
+                  'raytrace_min_range':.4,'raytrace_max_range':raytrace_max_range}
     cost['obstacle_layer']=obs
     cost['inflation_layer']['inflation_radius']=.6
     cost['inflation_layer']['cost_scaling_factor']=4.
@@ -43,7 +46,7 @@ params['behavior_server']['ros__parameters']['max_rotational_vel']=.3
 params['behavior_server']['ros__parameters']['min_rotational_vel']=.1
 params['behavior_server']['ros__parameters']['rotational_acc_lim']=.4
 params['planner_server']['ros__parameters']['GridBased']['allow_unknown']=False
-params['map_server']['ros__parameters']['yaml_filename']=str(root/'sim/generated/room.yaml')
+params['map_server']['ros__parameters'].pop('yaml_filename',None)
 out=root/'navigation/g1_nav2_params.yaml'
 out.write_text('# Generated from installed ROS Humble nav2_bringup defaults by scripts/generate_nav_params.py\n'+yaml.safe_dump(params,sort_keys=False))
 print(out)

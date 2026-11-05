@@ -4,6 +4,7 @@
 - [2026-11-04 Ubuntu 倒装回放与扫描场景导航](2026-11-04_scan_navigation.md)
 - [2026-11-05 悬吊条件下的办公室推进方案](2026-11-05_suspended_office_plan.md)
 - [2026-11-05 第二台 G1 的 PC2 部署与构建排障](2026-11-05_pc2_build_pitfalls.md)
+- [2026-11-05 C 段规划链、时钟与障碍源的离线验证](2026-11-05_pc2_nav_clock_and_obstacle_source.md)
 - [当前验证状态](../README.md)
 - [PC2 单机与 B300 部署指南](../g1_real_robot_slam_pc2_b300_guide.md)
 

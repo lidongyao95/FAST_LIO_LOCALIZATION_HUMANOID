@@ -162,7 +162,7 @@ ROS 2 网络：驱动 → FAST-LIO → 定位 → RViz/Nav2
 以下变量在**每个需要使用它们的新终端**中设置，示例目录按本机实际路径填写：
 
 ```bash
-export G1_REPO=/home/sjtu/ldy/FAST_LIO_LOCALIZATION_HUMANOID
+export G1_REPO="$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID"
 export G1_REAL_WS="$G1_REPO/tmp/g1_real_ws"
 export G1_DATA="$G1_REPO/tmp/g1_real_data"
 ```
@@ -460,7 +460,7 @@ ls -lh "$G1_DATA/maps/room_01.pcd"
 
 ### 7.1 先理解当前入口的坐标假设
 
-**源码已核对：** `localization_3d_g1.launch.py` 包含 FAST-LIO、定位节点与 RViz；`open3d_loc_g1.launch.py` 仍写死作者机器的地图路径，并包含 `odom → camera_init`、`imu_link → base_link`、`base_link → motion_link` 的静态关系。它们不能未经检查就代表真机完整安装关系。
+**源码已核对：** `localization_3d_g1.launch.py` 包含 FAST-LIO、定位节点与 RViz；父入口声明并转发必填的 `path_map:=<PCD或PLY路径>`。子入口包含 `odom → camera_init`、`imu_link → base_link`、`base_link → motion_link` 的静态关系。它们不能未经检查就代表真机完整安装关系。
 
 FAST-LIO 发布 `camera_init → body`；定位节点又读取命名为 `base_link`、`imu_link` 的变换。调试前必须在记录中说明 `body` 是否被当成雷达 IMU 原点、哪里转换为机体原点，以及零变换是否有实际依据。存在断开的 TF 或不一致的机体语义时，先完成适配，再评价定位精度。
 
@@ -485,9 +485,9 @@ cp "$G1_REPO/open3d_loc/config/loc_param_g1.yaml" \
 
 先停止其他 FAST-LIO 和播放器。终端 L1 按第 6.3 节启动 FAST-LIO，仍使用 `use_sim_time=true`，不要同时再启动包含 FAST-LIO 的组合 launch。
 
-终端 L2 运行定位节点。当前 `open3d_loc_g1.launch.py` 只暴露 `use_sim_time`，没有暴露地图和实机配置参数；在 `ros2 launch` 后追加节点级 `--ros-args` 不能代替这些参数入口。实际操作应在以下两种方式中选择一种：
+终端 L2 运行定位节点。当前 `open3d_loc_g1.launch.py` 暴露 `use_sim_time` 和必填的 `path_map`，实机参数文件和安装 TF 仍需单独配置；在 `ros2 launch` 后追加节点级 `--ros-args` 不能代替这些参数入口。实际操作应在以下两种方式中选择一种：
 
-1. 复制该 launch 为实机专用文件，将地图路径、配置和已核实的静态变换改为本次值，再构建并运行；适合后续维护。
+1. 复制该 launch 为实机专用文件，通过 `path_map` 传入本次地图，并使用本次配置和已核实的静态变换，再构建并运行；适合后续维护。
 2. 将该 launch 中已经核实的静态变换单独启动，再直接运行定位节点；适合首次逐节点诊断。
 
 第二种方式的定位节点命令如下，**前置条件是对应 TF 已按实测完成，不能遗漏静态变换步骤**：
@@ -511,7 +511,7 @@ ros2 run open3d_loc global_localization_node --ros-args \
 ros2 bag play "$G1_DATA/bags/loc_B_01" --clock
 ```
 
-若沿用原组合 launch，需先完成路径与 TF 修改、重新构建，并确认 `/rviz_map_cur` 的 `use_sim_time=true`；原 RViz 节点没有显式设置该参数。
+若沿用原组合 launch，需传入 `path_map`，完成 TF 修改并重新构建，并确认 `/rviz_map_cur` 的 `use_sim_time=true`；原 RViz 节点没有显式设置该参数。
 
 ### 7.4 定位验收
 
