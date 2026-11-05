@@ -143,6 +143,26 @@ ls -lh "$G1_DATA/maps/office_01.pcd"
 
 先确认 A 段二维栅格、B 段定位证据、实际安装 TF 与本机规划组件可用。真机现场仅启动地图服务器、planner server、所需代价地图和生命周期管理。保持速度桥、机器人运控、导航行为树、控制器与恢复行为入口隔离。现有 `scripts/validate_nav_goal.py` 调用 `NavigateToPose`，用于导航链验证时应放在独立离线或仿真任务中。
 
+现场入口用规划模式，不启动控制器与行为树：
+
+```bash
+ros2 launch open3d_loc g1_navigation.launch.py repo:="$G1_REPO" \
+  mode:=plan map_yaml:="$G1_DATA/maps/office_01.yaml" \
+  use_sim_time:=false rviz:=true
+```
+
+launch 的默认值仍是仿真地图与仿真时间，`mode:=plan`、`map_yaml`、`use_sim_time` 三项必须显式给出。启动后用以下读回值确认生效，再进入第 1 步：
+
+| 读回 | 期望 |
+|---|---|
+| `ros2 node list` | 只有 `/map_server`、`/planner_server`、`/global_costmap/*`，无 `controller_server`、`behavior_server`、`bt_navigator` |
+| `ros2 param get /planner_server use_sim_time` | `False`；`/map_server`、`/global_costmap/global_costmap` 同 |
+| `ros2 param get /map_server yaml_filename` | 本次传入的二维图 |
+| `ros2 param get /global_costmap/global_costmap obstacle_layer.lidar.topic` | `/cloud_registered_body_1` |
+| 全局障碍层最大距离 | Foxy 读 `obstacle_range`、`raytrace_range`；Humble 读 `obstacle_max_range`、`raytrace_max_range` |
+
+双端复测记录见 [C 段规划链、时钟与障碍源](2026-11-05_pc2_nav_clock_and_obstacle_source.md#11-c-段真机规划入口与双端复测)。Foxy 上 `ros2 lifecycle get /global_costmap/global_costmap` 会返回 `unconfigured`，代价地图实际已激活，判定以 `costmap_raw` 是否有数据为准。
+
 1. 检查地图与规划节点 active、TF 发布者唯一、代价地图可更新。核对 `ros2 action list -t` 及 `ros2 interface show nav2_msgs/action/ComputePathToPose`。使用实际 action 名称和实装字段发送 `map` 下的规划目标；Foxy 上游定义使用 `pose` 与 `planner_id`。[Foxy 动作定义](https://github.com/ros-navigation/navigation2/blob/foxy-devel/nav2_msgs/action/ComputePathToPose.action)
 2. 验证三个用例。可通行目标返回有效路径；阻断用例按预期绕行或返回无路径；在已确认配置了对应障碍层的代价地图上，分别观察障碍标记与射线清除。记录 action 状态、路径、耗时、传感器输入、frame、时间戳和截图或录包。
 3. 规划超时按异常记录，检查 planner 生命周期、TF 时钟与连通性、代价地图更新和目标占用状态，修复后复测。人工搬运时按已批准路线单独观察定位连续性。

@@ -474,17 +474,20 @@ TF，用于不启动 Nav2 的支架演示。
 
 - 移除 AMCL，三维定位由 `open3d_loc` 提供。
 - 机器人轮廓改为约 `0.68 m x 0.56 m` 的矩形。
-- 全局和局部代价地图使用 `/livox/lidar` 的 `PointCloud2` 障碍层。
+- 全局和局部代价地图使用 FAST-LIO 的 `/cloud_registered_body_1`（`PointCloud2`）作为障碍源。
 - 局部窗口为 `5 m x 5 m`，全局与局部地图分辨率均为 `0.05 m`。
 - DWB 最大线速度 0.2 m/s，最大角速度 0.3 rad/s。
 - Nav2 控制器和恢复行为输出 `/cmd_vel_nav`；导航门禁统一转发为控制器命令。
-- `g1_navigation.launch.py` 的 `map_yaml` 参数覆盖文件中的机器绝对路径，实际
-  应传入本次运行要加载的二维地图。
-- `ensure_g1_nav_lifecycle.py` 按固定顺序配置并激活五个 Nav2 lifecycle 节点；
-  不再依赖 Humble lifecycle manager，避免其在 `map_server` 配置响应处卡住。
+- `g1_navigation.launch.py` 启动前把 `use_sim_time` 与 `map_yaml` 写入一份临时参数
+  文件并整份下发，覆盖共享 YAML 里写死的仿真值，实际应传入本次运行要加载的二维地图。
+  该文件路径会打进启动日志，并在 launch 关停时删除。
+- `mode:=full` 为默认仿真栈。`mode:=plan` 只启动地图、规划和生命周期管理，
+  必须显式传入 `map_yaml` 与 `use_sim_time`。非法模式或时钟值会在启动节点前报错。
+- `ensure_g1_nav_lifecycle.py` 按传入的节点名顺序配置并激活 lifecycle 节点，缺省为
+  五个 Nav2 节点。启动失败会记录未就绪的节点状态并关停本次 launch。
 
-如果重新生成参数，生成器会写入生成时本机的仓库绝对路径；运行时应以
-`map_yaml:=...` 覆盖，避免仓库迁移后加载旧路径。
+生成器会移除共享参数文件中的 `map_server.yaml_filename`。运行时用
+`map_yaml:=...` 传入本次地图，仿真模式默认使用仓库内的 `sim/generated/room.yaml`。
 
 ### 4.5 控制器配置
 

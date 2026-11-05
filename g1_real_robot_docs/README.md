@@ -28,9 +28,9 @@
 | 时间 | `timedatectl` 显示已同步，chrony 源为运控电脑 `192.168.123.161`，偏差约 0.5 ms。 |
 | 硬件与运控 | 本轮未接运控：未读 LowState、未核对固件与整机序列号。雷达安装方向、外参、腰部状态待现场确认。 |
 | B300 建图 | 尚无 A 段行走录包与地图验收，只有静止基线包。 |
-| 重定位与导航 | `open3d_loc` 的 ARM 预编译 Open3D 运行时冒烟通过：能加载 PCD 地图、发布 11 个话题、常驻 RSS 约 38.7 MiB，配准流程可执行。修复安装 TF 启动时序后，同一静止录包与地图的回放完成了初始化和稳态配准。**B 段正式重定位仍待验收**。`nav2_bringup` 仍缺；TF、速度桥、停止与接管未验。 |
+| 重定位与导航 | `open3d_loc` 的 ARM 预编译 Open3D 运行时冒烟通过：能加载 PCD 地图、发布 11 个话题、常驻 RSS 约 38.7 MiB，配准流程可执行。修复安装 TF 启动时序后，同一静止录包与地图的回放完成了初始化和稳态配准。**B 段正式重定位仍待验收**。C 段的规划入口 `mode:=plan`（只起 map_server、planner_server 与其内部 global costmap）已在 PC2/Foxy 与 4322/Humble 双端复测：参数读回、三个规划用例与障碍层标记/清除均通过，PC2 仍无 `nav2_bringup` 但该入口不需要它。现场实时验收（正式地图、实测外参、动态数据）未做；TF、速度桥、停止与接管未验。 |
 
-本轮细节见 [第二台 G1 的 PC2 部署与构建排障](debug_log/2026-11-05_pc2_build_pitfalls.md)。
+本轮细节见 [第二台 G1 的 PC2 部署与构建排障](debug_log/2026-11-05_pc2_build_pitfalls.md)；C 段规划链、时钟与障碍源的双端验证见 [对应记录](debug_log/2026-11-05_pc2_nav_clock_and_obstacle_source.md)。
 
 Ubuntu 本地回放与实时查看见 [部署指南附录 A.1](g1_real_robot_slam_pc2_b300_guide.md#a1-在-ubuntu-本地查看现有录包)。
 

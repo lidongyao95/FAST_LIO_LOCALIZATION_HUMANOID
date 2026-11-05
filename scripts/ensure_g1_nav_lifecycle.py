@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Configure and activate the Nav2 lifecycle nodes in dependency order."""
+"""Configure and activate the Nav2 lifecycle nodes in dependency order.
+
+Node names may be passed as arguments; the default is the full simulation set.
+"""
+import sys
 import time
 import rclpy
 from rclpy.node import Node
 from lifecycle_msgs.srv import GetState, ChangeState
 from lifecycle_msgs.msg import Transition
 
-NODES=('map_server','controller_server','planner_server','behavior_server','bt_navigator')
+DEFAULT_NODES=('map_server','controller_server','planner_server','behavior_server','bt_navigator')
+NODES=tuple(sys.argv[1:]) or DEFAULT_NODES
 
 class Repair(Node):
  def __init__(self):
@@ -27,6 +32,7 @@ class Repair(Node):
   return bool(r and r.success)
  def run(self):
   deadline=time.monotonic()+40
+  states=dict.fromkeys(NODES)
   while time.monotonic()<deadline:
    states={name:self.state(name) for name in NODES}
    if all(s==3 for s in states.values()):
@@ -42,7 +48,9 @@ class Repair(Node):
      self.change(name,Transition.TRANSITION_ACTIVATE)
      break
    time.sleep(.5)
-  self.get_logger().error('Nav2 lifecycle did not reach active state')
+  pending=', '.join(f'{name}={state if state is not None else "unreachable"}'
+                    for name,state in states.items() if state!=3)
+  self.get_logger().error(f'Nav2 lifecycle did not reach active state. Last pending states: {pending}')
   return 1
 
 def main():

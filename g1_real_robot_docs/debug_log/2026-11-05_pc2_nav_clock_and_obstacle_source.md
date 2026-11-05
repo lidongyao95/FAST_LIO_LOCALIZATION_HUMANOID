@@ -13,6 +13,7 @@
 | 障碍层标记与清除 | 双端受控栅格对照通过 | 近处障碍格被标记，后续回波穿过该格时可清除 |
 | 距离兼容 | 双端最大距离配置对齐 | 4.025 m、7.875 m 标记，8.125 m 无致命标记 |
 | 硬编码路径 | 已清理四处 | 参数与 launch 实测 |
+| C 段真机入口 | 通过。`mode:=plan` 只起 map_server、planner_server 与其内部 global costmap；参数整份重写后 `use_sim_time` 与地图均生效 | 双端节点集、参数读回与规划用例 |
 
 ## 2. C 段规划链预验证
 
@@ -123,7 +124,7 @@ FAST-LIO 无需改动：[common_lib.h](../../FAST_LIO/include/common_lib.h#L262-
 
 ## 8. 未决与现场待验
 
-- **实时验收。** 用正式地图、实测外参和独立动态数据核对定位、global/local costmap、低矮障碍、近距遮挡及移除后的清除。导航 launch 仍默认使用仿真地图与模拟时间，现场需明确选用实际地图和时间源。
+- **实时验收。** 用正式地图、实测外参和独立动态数据核对定位、global/local costmap、低矮障碍、近距遮挡及移除后的清除。导航 launch 的默认值仍是仿真地图与模拟时间，现场按第 11 节与[推进方案 §5](2026-11-05_suspended_office_plan.md#5-c-段tf二维地图与-nav2-仅规划)的 `mode:=plan` 入口显式给出模式、地图与时间源。
 - **高度与射线原点。** 高度筛选分别在 global 的 `map` 和 local 的 `odom` 中完成。应实测两个坐标系中的地板高度再定阈值。未指定 `sensor_frame` 时，机体云的射线起点是 `body` 的 IMU 原点，需与标定的 LiDAR 原点核对。 [Foxy ObservationBuffer](https://github.com/ros-navigation/navigation2/blob/foxy-devel/nav2_costmap_2d/src/observation_buffer.cpp)
 - **时间诊断。** 动态 TF 缓存限制的是样本历史窗口。回放时间与墙钟相差一小时，本身不足以解释按消息戳的 TF 查询失败。应记录点云戳、对应 TF 样本及失败类型。增大 `--lead-ms` 不会补出缺失 TF，也可能增加按当前时间计算的戳龄。
 - **兼容范围。** Foxy 无对应的 0.4 m 最小距离参数。8 m 和 9 m 已在全局代价地图读回，局部滚动窗口内的近距行为仍需验收。
@@ -168,6 +169,8 @@ PC2 与 4322 均使用隔离 ROS 域和临时 launch 覆盖目录，运行候选
 
 共享 YAML 的 local/global 障碍层与生成器均补上 Foxy 的 `obstacle_range: 8.0`、`raytrace_range: 9.0`，同时保留 Humble 的 min/max 键。生成器在 Humble 上重新运行后，两处 lidar 参数与仓库 YAML 一致。两端在隔离域用同一候选配置和 5 cm 合成地图测试全局障碍层，分别读回各自生效的最大距离参数 8.0 m 和 9.0 m。
 
+**该轮"两端生效"只对临时目录里的候选副本成立**：部署目录的 YAML 与生成器从未同步这两个键，按仓库文件启动时 Foxy 实际取默认 2.5 m / 3.0 m。见第 11 节。
+
 | 合成点云用例 | PC2/Foxy 与 4322/Humble |
 |---|---|
 | 水平距离 4.025 m、7.875 m | 目标格均被标记为 254 |
@@ -175,3 +178,51 @@ PC2 与 4322 均使用隔离 ROS 域和临时 launch 覆盖目录，运行候选
 | 8.125 m 回波穿过 7.875 m 的已标记格 | 开启清除时由 254 降为 0，关闭清除时保持 254 |
 
 9 m 为运行时参数读回值，行为探针验证到 8.125 m 的清除回波。证据在 PC2 的 `~/ldy/g1-nav-retest.jjFRIy/` 和 `~/ldy/g1-nav-range.sgyh86/`，以及 4322 的 `~/ldy/g1-nav-retest.xoKcMw/` 和 `~/ldy/g1-nav-range.pTAr9U/`。距离用例见 `result.log`、`control-result.log`，仿真结果见 `nav-goal.json`。4322 仿真达成目标后，`g1_nav_tf.py` 在关停阶段报告 `ExternalShutdownException`。
+
+## 11. C 段真机规划入口与双端复测
+
+本节把第 10 节的离线结论收敛成可现场执行的入口，并修正其中一条只对候选副本成立的判断。两端均用隔离 ROS 域、`ROS_LOCALHOST_ONLY=1`、`rmw_fastrtps_cpp`、`use_sim_time:=false`，无 `/clock`；地图为 200×200 / 0.05 m 合成图，机器人位姿由 `map → base_footprint` 与 `map → body` 静态 TF 给在 (-2.0, 0.0)。
+
+### 11.1 规划入口参数化
+
+[g1_navigation.launch.py](../../open3d_loc/launch/g1_navigation.launch.py) 新增 `mode`（`full` / `plan`）与 `use_sim_time`。仅规划模式要求显式给出地图和时钟参数，非法模式或时钟值在创建节点前报错。启动前把 `use_sim_time`、`map_yaml` 写入一份临时参数文件后整份下发。这样绕开第 7 节的优先级问题：临时文件内不再存在与覆盖值同名的冲突项。实测嵌套的 `global_costmap` 段也随 launch 参数变化，这是按节点字典下发时无法保证的。
+
+`mode:=plan` 只启动 `map_server`、`planner_server` 及其内部 global costmap，不启动控制器、恢复行为和 BT navigator，也没有速度输出。[ensure_g1_nav_lifecycle.py](../../scripts/ensure_g1_nav_lifecycle.py) 改为接受节点名参数，缺省仍是原五个节点。
+
+### 11.2 部署漂移
+
+| 项目 | 现象 | 处理 |
+|---|---|---|
+| PC2 首次复测 | 4.025 m 处不标记；`obstacle_layer.lidar.obstacle_range` 读回 2.5、`raytrace_range` 读回 3.0，即 Foxy 默认值 | 判定为参数未生效，不是障碍层缺陷 |
+| 根因 | 两端部署目录的 `navigation/g1_nav2_params.yaml` 与 `scripts/generate_nav_params.py` 都缺这两个 Foxy 键；第 10 节的 8.0/9.0 来自 `~/ldy/g1-nav-range.*` 里的候选副本 | 两端同步该 YAML 与生成器，SHA-256 `125f1214…`，与上次候选文件一致 |
+| 同步后 | 两键读回 8.0 / 9.0，4.025 m 恢复标记 | 见 11.3 |
+
+部署机与开发机的配置漂移只能靠反向比对发现，本轮的 `rsync -ain` 只查出这两处，其余文件无差异。
+
+### 11.3 复测结果
+
+| 检查 | PC2 / Foxy | 4322 / Humble |
+|---|---|---|
+| 节点集 | `map_server`、`planner_server`、`/global_costmap/global_costmap`；无 controller、behavior、bt_navigator | 同左 |
+| `use_sim_time` 读回 | planner_server、map_server、嵌套 global costmap 均为 `False` | 同左 |
+| `map_server.yaml_filename` | 传入路径 | 传入路径 |
+| 障碍源 | `obstacle_layer.lidar.topic` = `/cloud_registered_body_1` | 同左 |
+| 生效最大距离 | `obstacle_range` 8.0、`raytrace_range` 9.0 | `obstacle_max_range` 8.0、`raytrace_max_range` 9.0 |
+| 规划用例 | 366 点 9.18 m（最大 y 3.63）、72 点 1.83 m、封闭盒 `ABORTED` 空路径 | 同左 |
+| 标记与清除 | 近处 0→254，穿透回波后→0；4.025 m →254 | 同左 |
+| 重编 `open3d_loc` | 3.94 s，退出 0 | 36.0 s，退出 0 |
+
+`mode:=full` 在 4322 冒烟通过：五个节点全部起齐，`map_server`、`planner_server`、`controller_server` 均为 active；无仿真源与 `odom` 的首轮冒烟中，局部代价地图等待 TF，生命周期助手最终超时。之后在具备仿真 TF 与时钟的完整回归中，生命周期助手成功，目标 (1.2, −0.2) 返回 `SUCCEEDED`。仿真默认值未变，`start_g1_navigation.sh` 现在把它校验过的 `map_yaml` 显式传入。
+
+### 11.4 两个操作注意点
+
+- 临时参数文件在关停时删除，路径同时打进启动日志（`params=/tmp/g1_nav_params_*.yaml`）便于事后核对。实测 `Ctrl-C`（SIGINT）后 `/tmp` 无残留；直接 `kill -TERM` 或 `SIGKILL` 不触发 launch 的 shutdown 事件，会留一个文件，需手工清理。
+- Foxy 上 `ros2 lifecycle get /global_costmap/global_costmap` 返回 `unconfigured`，但日志有 `Activating` / `start`，且 `costmap_raw` 正常发布。判定代价地图状态应看 `costmap_raw` 是否有数据或参数读回，不要用这条命令。该行为来自上游：Foxy 的 `planner_server` 直接调用代价地图自身的 `configure()` / `activate()`，不驱动子节点的生命周期状态机，本仓库侧改不了。
+
+证据：PC2 的 `~/ldy/g1-naventry.JC6sgZ/`（`inspect.log`、`result.log`、`range.log`、`launch.log`、`run.sh`、`probe_entry.py`、`probe_range.py`），4322 的 `~/ldy/g1-naventry.UaO2de/`（`inspect.log`、`result.log`、`inspect-full.log`、`full-launch.log`）。两端验证后进程已停止。
+
+### 11.5 启动失败保护
+
+PC2/Foxy 与 4322/Humble 均验证了四种启动拒绝条件：拼错模式、非法时钟值、仅规划缺地图、仅规划缺时钟。四种情况均在启动节点前退出，返回码为 1。将生命周期助手替换为立即退出 7 的探针后，两个平台都发送关停信号、清理临时参数文件，launch 返回 1。Foxy 的退出回调须显式发送关停事件，单独抛异常只会记录错误。实际生命周期超时日志会附上最后一次查询中尚未激活的节点和状态。
+
+证据目录为 PC2 的 `~/ldy/g1-nav-guard.eSEzhs/` 和 4322 的 `~/ldy/g1-nav-guard.qP2H1v/`，包括 `bad-*.log`、`missing-*.log`、`failure.log`；完整仿真结果见 4322 的 `navigation.log` 和 `nav-goal.json`。仿真中仍可见点云早于 TF 缓存的告警，上一次仿真也出现过该告警。
