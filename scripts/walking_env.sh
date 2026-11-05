@@ -15,11 +15,27 @@ fi
 
 unset AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_PREFIX_PATH PYTHONPATH LD_LIBRARY_PATH
 export PATH=/usr/bin:/bin
-source "/opt/ros/${G1_ROS_DISTRO}/setup.bash"
-if [[ -f "$G1_REPO/install/local_setup.bash" ]]; then
-    source "$G1_REPO/install/local_setup.bash"
+# ROS setup hooks may expand unset variables under a strict caller.
+g1_restore_nounset=false
+if [[ $- == *u* ]]; then
+    g1_restore_nounset=true
+    set +u
 fi
+g1_setup_status=0
+source "/opt/ros/${G1_ROS_DISTRO}/setup.bash" || g1_setup_status=$?
+if [[ "$g1_setup_status" == 0 && -f "$G1_REPO/install/local_setup.bash" ]]; then
+    source "$G1_REPO/install/local_setup.bash" || g1_setup_status=$?
+fi
+if "$g1_restore_nounset"; then
+    set -u
+fi
+unset g1_restore_nounset
+if ((g1_setup_status != 0)); then
+    return "$g1_setup_status" 2>/dev/null || exit "$g1_setup_status"
+fi
+unset g1_setup_status
 export ROS_DISTRO="$G1_ROS_DISTRO"
+export G1_DATA="${G1_DATA:-$HOME/ldy/g1_real_data}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-72}"
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export ROS_LOG_DIR="${ROS_LOG_DIR:-$G1_REPO/sim/generated/ros_logs}"
