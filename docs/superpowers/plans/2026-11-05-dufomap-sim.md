@@ -15,7 +15,7 @@
 ## 在 4322 复现
 
 在隔离 Python 环境安装 `dufomap==1.1.1`。ROS 采集端使用 Humble 自带的
-`rclpy`、`message_filters` 和 `sensor_msgs_py`。仿真脚本用已有 MuJoCo 环境，
+`rclpy` 和 `message_filters`。仿真脚本用已有 MuJoCo 环境，
 工作树需要可读的 G1 模型子模块。三个终端分别 source Humble 与 FAST-LIO
 overlay，给本轮分配一个空闲 ROS 域，并设置 `ROS_LOCALHOST_ONLY=1`。
 
@@ -136,3 +136,36 @@ python scripts/check_dufomap_loop.py "$RUN" --revisit-after "$stamp"
 `clean-map/map.ply` 和 `clean-map/map.yaml`。RViz 俯视平移使用
 **Move Camera** 加 **Shift + 左键拖动**，或使用鼠标中键拖动。
 如果工具栏缺少 Move Camera，从加号菜单选 `rviz_default_plugins/MoveCamera`。
+
+## hang_A_02 真机录包与 PC2 Foxy 验证
+
+4322 对 Mac 同 SHA-256 的 `hang_A_02` 全包回放。使用原录包的 MID-360
+预处理配置，启用倒装补偿，并在此次回放锁定 LiDAR→IMU 外参平移
+`(-0.011, -0.02329, 0.04412) m`，使采集器的射线起点和 LIO 一致。
+收集 3,356 对同时间戳的扫描和位姿。没有已知清场复扫标记，本轮省略
+`--revisit-after`，只运行 DUFOMap。结果只表明几何分类和投影可执行，
+保留和删除点需结合现场记录核验。
+
+本次匹配对照从原始与清理点集使用相同的地面估计、原点、尺寸、10 cm 栅格、
+12 m 投影半径和零起点填补半径重投影。三维 PCD 和 PLY 用 3 cm 体素
+抽取显示代表点，二维投影用抽取前的点。DUFOMap 从 15,213,840 个回波
+标记剔除 199,416 个，533 个占用格转为空闲，起点仍占用。4322 工作目录
+为 `~/ldy/dufomap-real-hang-A-02/matched`，包含 PCD、二维图、对比图、
+RViz 配置及生成脚本。
+
+Foxy 采集器直接按 `PointCloud2` XYZ 字段、字节序和行列步幅读取点云，
+避免依赖 PC2 未安装的 `sensor_msgs_py`。`--idle-timeout` 用于未知有效帧数
+的录包，仍保留 `--frames` 用法。PC2 以独立 ROS 域回放 `static_01`，
+捕获 131 对点云和里程计。DUFOMap 后处理仍运行在 4322，机载采集和 C++
+包无需安装 DUFOMap Python wheel。
+
+按 3 cm 代表点统计，移除点中 93.7% 距雷达轨迹的平面距离不到 1 m，
+原始点对应比例为 19.7%。这显示删点集中在近轨迹区域，仍需现场信息
+区分吊具、人员、近场固定结构和配准误差。
+
+PC2 上使用其当前部署源码、Livox 已安装依赖和独立构建目录重编。
+`fast_lio` 1 分 59 秒、`open3d_loc` 1 分 22 秒均通过。新二进制
+按 `static_01` 对应的未翻转地图设置回放，FAST-LIO 完成 IMU 初始化，
+Open3D 完成定位初始化，初始 fitness 约 0.93。第一次定位回放误用了
+另一录包的翻转开关，恢复对应地图的设置后通过。机载验收日志在
+`~/ldy/dufomap-foxy-review`。此次使用录包和隔离 ROS 域。
