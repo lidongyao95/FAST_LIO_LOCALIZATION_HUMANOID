@@ -97,11 +97,14 @@ def generate():
 
 
 class Sensors(Node):
-    def __init__(self, move=False, model_path=None):
+    def __init__(self, move=False, model_path=None, transient_obstacle=False):
         super().__init__('g1_mujoco_sensors')
         self.model = mujoco.MjModel.from_xml_path(str(model_path or OUT / 'scene.xml'))
         self.data = mujoco.MjData(self.model)
         self.move = move
+        self.obstacle_mocap = (
+            self.model.body("nav_dynamic_obstacle").mocapid[0] if transient_obstacle else None
+        )
         self.imu = self.create_publisher(Imu, '/livox/imu', 50)
         self.cloud = self.create_publisher(PointCloud2, '/livox/lidar', 10)
         self.truth = self.create_publisher(PoseStamped, '/g1_sim/ground_truth', 10)
@@ -123,6 +126,10 @@ class Sensors(Node):
         t = max(0., self.data.time - 12.)
         if self.move:
             self.data.mocap_pos[0, 0] = .5 * (1 - np.cos(.08*t))
+        if self.obstacle_mocap is not None:
+            self.data.mocap_pos[self.obstacle_mocap] = (
+                [2., 0., .95] if self.data.time < 8. else [0., 0., -5.]
+            )
         self.data.ctrl[:] = -80*self.data.qpos[7:] - 3*self.data.qvel[6:]
 
     def step(self):
@@ -174,12 +181,14 @@ def main():
     parser.add_argument('--headless', action='store_true')
     parser.add_argument('--move', action='store_true')
     parser.add_argument('--generate-only', action='store_true')
+    parser.add_argument('--transient-obstacle', action='store_true',
+                        help='Place a box in front of the sensor for the first 8 simulated seconds')
     args = parser.parse_args()
     generate()
     if args.generate_only:
         return
     rclpy.init()
-    node = Sensors(args.move)
+    node = Sensors(args.move, transient_obstacle=args.transient_obstacle)
     viewer = None
     if not args.headless:
         import mujoco.viewer
