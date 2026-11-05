@@ -25,12 +25,13 @@
 
 #define MAX_INI_COUNT (10)
 
-const bool time_list(PointType &x, PointType &y) {return (x.curvature < y.curvature);};
+inline bool time_list(const PointType &x, const PointType &y) {return (x.curvature < y.curvature);};
 
 /// *************IMU Process and undistortion
 class ImuProcess
 {
  public:
+  bool check_imu_z_up = false;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   ImuProcess();
@@ -372,6 +373,13 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
       {
         std::cerr << "[FAST-LIO] IMU acceleration norm is zero, keep waiting for valid IMU data" << std::endl;
         return;
+      }
+      if (check_imu_z_up && mean_acc.z() < 0)
+      {
+        RCLCPP_ERROR(rclcpp::get_logger("laser_mapping"),
+                     "Initial IMU Z specific force is negative after input compensation (%.3f). "
+                     "Check the mounting, driver rotation and common.input_roll_180 before using the map.",
+                     mean_acc.z());
       }
       cov_acc *= pow(G_m_s2 / mean_acc.norm(), 2);
       imu_need_init_ = false;

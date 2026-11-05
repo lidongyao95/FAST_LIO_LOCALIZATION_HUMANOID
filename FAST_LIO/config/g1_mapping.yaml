@@ -51,4 +51,3 @@
       tf_en: false
     pcd_save:
       pcd_save_en: true
-      interval: -1
