@@ -114,3 +114,25 @@ python scripts/check_dufomap_loop.py "$RUN" --revisit-after "$stamp"
 `body` 扫描作为代价地图输入。原会话的 RViz 点击能送达 BT Navigator，
 其失败日志来自地图规划。新图上的首次实际 RViz 点击由约 (0.37, -0.21)
 发往 (2.01, -0.24)，收到 `Goal succeeded`，实际移动约 1.44 m。
+
+## 消融对照、固定障碍背侧补扫
+
+在两组原始扫描上复跑同一个清图入口，省略 `--revisit-after` 即得到仅 DUFOMap
+的对照。原始累积点云和两种清图结果均使用同一套 10 cm 投影规则。
+
+| 种子 | 原始箱体高度带点数 | 仅 DUFOMap 剩余点数 / 额外占用格 | DUFOMap 加复扫剩余点数 / 额外占用格 |
+| --- | ---: | ---: | ---: |
+| 4322 | 56,835 | 1,762 / 140 | 0 / 0 |
+| 9417 | 55,573 | 1,764 / 142 | 0 / 0 |
+
+外围补扫用 `dufomap_loop_sim.py --perimeter`，把采集参数改为
+`--frames 1150 --timeout 150`。前两圈结束后，沿房间外围增加一个椭圆路线，
+从三块固定障碍的背侧重新观测。种子 4322 共收到 1,150 对扫描和位姿，
+累计轨迹约 44.31 m。以场景固定几何的三个背面等距采样 460 处，0.16 m
+内有清理后点云的采样位置从 19 增到 460。三个背后地面检查区的未知格
+从 40 降到 0。随机箱体仍全部通过高度带和占用检查。
+
+4322 补扫结果位于 `~/ldy/dufomap-sim.WWmdzT/perimeter`。演示加载其中
+`clean-map/map.ply` 和 `clean-map/map.yaml`。RViz 俯视平移使用
+**Move Camera** 加 **Shift + 左键拖动**，或使用鼠标中键拖动。
+如果工具栏缺少 Move Camera，从加号菜单选 `rviz_default_plugins/MoveCamera`。

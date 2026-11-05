@@ -15,12 +15,15 @@ from g1_mujoco_sensors import OUT, Sensors, generate
 PERIOD = 30.0
 WARMUP = 3.0
 BOX_HALF_SIZE = [.23, .23, .65]
+PERIMETER_APPROACH = 10.0
+PERIMETER_PERIOD = 45.0
 
 
 class LoopSensors(Sensors):
-    def __init__(self, scene, centers):
+    def __init__(self, scene, centers, perimeter=False):
         super().__init__(model_path=scene)
         self.centers = centers
+        self.perimeter = perimeter
         self.support = int(self.model.body("support").mocapid[0])
         self.boxes = [int(self.model.body(f"transient_{i}").mocapid[0])
                       for i in range(len(centers))]
@@ -30,7 +33,15 @@ class LoopSensors(Sensors):
         super().apply_control()
         elapsed = max(0., self.data.time - WARMUP)
         theta = 2 * np.pi * elapsed / PERIOD
-        self.data.mocap_pos[self.support, :2] = [1.15 * (1 - np.cos(theta)), 1.15 * np.sin(theta)]
+        xy = [1.15 * (1 - np.cos(theta)), 1.15 * np.sin(theta)]
+        if self.perimeter and elapsed >= 2 * PERIOD:
+            outer = elapsed - 2 * PERIOD
+            if outer < PERIMETER_APPROACH:
+                xy = [2.35 * (1 - np.cos(np.pi * outer / PERIMETER_APPROACH)), 0.]
+            else:
+                phase = 2 * np.pi * (outer - PERIMETER_APPROACH) / PERIMETER_PERIOD
+                xy = [4.7 * np.cos(phase), 3.25 * np.sin(phase)]
+        self.data.mocap_pos[self.support, :2] = xy
         for i, (mocap, center) in enumerate(zip(self.boxes, self.centers)):
             active = elapsed < PERIOD and i * 4 <= elapsed < 19 + i * 3
             self.data.mocap_pos[mocap] = [*center, BOX_HALF_SIZE[2] if active else -5.]
@@ -43,6 +54,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=4322)
     parser.add_argument("--speed", type=float, default=1.)
+    parser.add_argument("--perimeter", action="store_true", help="Add a back-side survey after the two loops")
     parser.add_argument("truth", type=Path)
     args = parser.parse_args()
     if not np.isfinite(args.speed) or args.speed <= 0:
@@ -63,10 +75,13 @@ def main():
     args.truth.write_text(json.dumps({"seed": args.seed, "centers": centers.tolist(),
                                      "half_size": BOX_HALF_SIZE}))
     rclpy.init()
-    node = LoopSensors(path, centers)
+    node = LoopSensors(path, centers, args.perimeter)
+    duration = WARMUP + 2 * PERIOD + 2
+    if args.perimeter:
+        duration += PERIMETER_APPROACH + PERIMETER_PERIOD
     try:
         started = time.monotonic()
-        while rclpy.ok() and node.data.time < WARMUP + 2 * PERIOD + 2:
+        while rclpy.ok() and node.data.time < duration:
             node.step()
             rclpy.spin_once(node, timeout_sec=0.)
             time.sleep(max(0., started + node.data.time / args.speed - time.monotonic()))
