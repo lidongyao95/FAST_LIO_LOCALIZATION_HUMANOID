@@ -58,7 +58,9 @@ namespace open3d_conversions
     sensor_msgs::PointCloud2ConstIterator<float> ros_pc2_y(*ros_pc2, "y");
     sensor_msgs::PointCloud2ConstIterator<float> ros_pc2_z(*ros_pc2, "z");
     o3d_pc.points_.reserve(ros_pc2->height * ros_pc2->width);
-    if (ros_pc2->fields.size() == 3 || skip_colors == true)
+    // fields.size() < 4 时才保证没有颜色字段可读；用 == 3 判断会漏掉字段数少于 3 的情况，
+    // 并让第 4 个字段不是 rgb/intensity 的点云整帧被丢弃。
+    if (ros_pc2->fields.size() < 4 || skip_colors == true)
     {
       for (size_t i = 0; i < ros_pc2->height * ros_pc2->width; ++i, ++ros_pc2_x, ++ros_pc2_y, ++ros_pc2_z)
       {
@@ -89,6 +91,15 @@ namespace open3d_conversions
         {
           o3d_pc.points_.push_back(Eigen::Vector3d(*ros_pc2_x, *ros_pc2_y, *ros_pc2_z));
           o3d_pc.colors_.push_back(Eigen::Vector3d(*ros_pc2_i, *ros_pc2_i, *ros_pc2_i));
+        }
+      }
+      else
+      {
+        // 第 4 个字段既不是 rgb 也不是 intensity：退回无色点云，避免整帧点被静默丢弃
+        o3d_pc.colors_.clear();
+        for (size_t i = 0; i < ros_pc2->height * ros_pc2->width; ++i, ++ros_pc2_x, ++ros_pc2_y, ++ros_pc2_z)
+        {
+          o3d_pc.points_.push_back(Eigen::Vector3d(*ros_pc2_x, *ros_pc2_y, *ros_pc2_z));
         }
       }
     }

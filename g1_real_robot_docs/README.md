@@ -1,8 +1,10 @@
 # G1 真机 SLAM 文档
 
-当前实机以 PC2 原生 Foxy 为部署基线。现场操作从 [PC2 单机与 B300 指南](g1_real_robot_slam_pc2_b300_guide.md) 开始，实测证据和历史变更见 [调试记录](debug_log/README.md)。[通用部署笔记](g1_real_robot_slam_notes.md) 保留外部 x86/Humble 路线，两份修改计划保留评审背景。
+当前实机以 PC2 原生 Foxy 为部署基线。现场操作从 [PC2 单机与 B300 指南](g1_real_robot_slam_pc2_b300_guide.md) 开始，实测证据和历史变更见 [调试记录](debug_log/README.md)。[通用部署笔记](g1_real_robot_slam_notes.md) 保留外部 x86/Humble 路线。
 
-## 真机验证状态（2026-11-04）
+## 真机验证状态（2026-11-04，第一台 G1）
+
+下表对应第一台 G1：雷达 MAC `8c:58:23:77:d1:b7`，部署在 `~/FAST_LIO_LOCALIZATION_HUMANOID`。
 
 | 项目 | 结论与范围 |
 |---|---|
@@ -14,9 +16,25 @@
 | B300 建图 | 尚无正式 A 段录包和地图验收。需先核对安装外参、时间及现场采集条件。 |
 | 重定位与导航 | 当前 PC2 overlay 无 `open3d_loc` 和 `nav2_bringup`。独立 B 段重定位、持续负载、TF、速度桥、停止与接管尚未验收。 |
 
+## 真机验证状态（2026-11-05，第二台 G1）
+
+第二台 G1：雷达 MAC `8c:58:23:c0:0c:b6`，雷达序列号 `2021370048`，部署在 `~/ldy/FAST_LIO_LOCALIZATION_HUMANOID`，数据在 `~/ldy/g1_real_data`。与上表不是同一台整机，编号与结论须分开登记。
+
+| 项目 | 结论与范围 |
+|---|---|
+| SSH、PC2 与构建 | 公钥登录可用，aarch64 / Ubuntu 20.04.6 / Foxy。`livox_ros_driver2`、`fast_lio`、`open3d_loc` 三包构建通过；Open3D 用作者 ARM 预编译包。 |
+| 雷达与 IMU | 驱动 1.2.8 启动成功并连上 `192.168.123.120`。`~/ldy/g1_real_data/bags/static_01` 为 13.408 秒，点云 134 条（9.99 Hz）、IMU 2683 条（200.1 Hz）；两路头时间严格递增，`timebase` 与 `header.stamp` 一致。加速度单位为 g，静止模长 1.0025、重力沿 -Z；静止角速度模长约 0.034 rad/s。**动态对齐未测。** |
+| FAST-LIO 与 PCD | 已用 `static_01` 在隔离域离线运行：`IMU Initial Done` 后输出 125 条 `/Odometry_loc`（`camera_init → body`）与 125 帧 `/cloud_registered_1`，约 10 Hz；静止 12.4 秒内位移不超过 19.5 mm。`/map_save` 成功，PCD 13,827 点。动态精度未验。 |
+| 时间 | `timedatectl` 显示已同步，chrony 源为运控电脑 `192.168.123.161`，偏差约 0.5 ms。 |
+| 硬件与运控 | 本轮未接运控：未读 LowState、未核对固件与整机序列号。雷达安装方向、外参、腰部状态待现场确认。 |
+| B300 建图 | 尚无 A 段行走录包与地图验收，只有静止基线包。 |
+| 重定位与导航 | `open3d_loc` 的 ARM 预编译 Open3D 运行时冒烟通过：能加载 PCD 地图、发布 11 个话题、常驻 RSS 约 38.7 MiB，配准流程可执行。修复安装 TF 启动时序后，同一静止录包与地图的回放完成了初始化和稳态配准。**B 段正式重定位仍待验收**。`nav2_bringup` 仍缺；TF、速度桥、停止与接管未验。 |
+
+本轮细节见 [第二台 G1 的 PC2 部署与构建排障](debug_log/2026-11-05_pc2_build_pitfalls.md)。
+
 Ubuntu 本地回放与实时查看见 [部署指南附录 A.1](g1_real_robot_slam_pc2_b300_guide.md#a1-在-ubuntu-本地查看现有录包)。
 
-本轮复核细节见 [换电前后对时记录](debug_log/2026-11-04_g1_pc2_slam.md)。
+第一台 G1 的复核细节见 [换电前后对时记录](debug_log/2026-11-04_g1_pc2_slam.md)。
 
 ## Ubuntu 离线回放与扫描场景仿真
 

@@ -1,20 +1,38 @@
 #include <rclcpp/rclcpp.hpp>
-#include <rclcpp/wait_for_message.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+// Foxy 使用 .h 头文件，Galactic/Humble 起才有 .hpp；用 __has_include 兼容两者
+#if __has_include(<tf2_ros/transform_broadcaster.hpp>)
 #include <tf2_ros/transform_broadcaster.hpp>
 #include <tf2_ros/transform_listener.hpp>
 #include <tf2_ros/buffer.hpp>
+#include <tf2_ros/static_transform_broadcaster.hpp>
+#else
+#include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/static_transform_broadcaster.h>
+#endif
+#if __has_include(<tf2_geometry_msgs/tf2_geometry_msgs.hpp>)
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#else
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#endif
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <tf2_ros/static_transform_broadcaster.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/float32.hpp>
 
+#if __has_include(<tf2_eigen/tf2_eigen.hpp>)
 #include <tf2_eigen/tf2_eigen.hpp>
+#else
+#include <tf2_eigen/tf2_eigen.h>
+#endif
+#include <chrono>
 #include <queue>
 #include <cmath>
+#include <stdexcept>
+#include <thread>
 // #include <pcl/common/transforms.h>
 
 #include <Eigen/Core>
@@ -102,13 +120,9 @@ public:
     /// @return
     Eigen::Matrix3d Euler2Matrix3d(const Eigen::Vector3d euler);
 
-    /// @brief 获取tf关系到矩阵
-    /// @param frame_id
-    /// @param child_frame_id
-    /// @param matrix
-    /// @return
-    bool GetTfTransformToMatrix(
-        std::string frame_id, std::string child_frame_id, Eigen::Matrix4d &matrix);
+    Eigen::Matrix4d WaitForStartupTransform(
+        const std::string &target_frame, const std::string &source_frame,
+        std::chrono::steady_clock::time_point deadline);
 
     /// @brief compute 3d distance between two points
     /// @param a
@@ -242,7 +256,7 @@ private:
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 };
 
-GloabalLocalization::GloabalLocalization() : Node("global_loc_node"),
+GloabalLocalization::GloabalLocalization() : Node("global_localization_node"),
                                              tf_buffer_(this->get_clock()),
                                              tf_listener_(std::make_shared<tf2_ros::TransformListener>(tf_buffer_))
 {
@@ -260,11 +274,13 @@ GloabalLocalization::GloabalLocalization() : Node("global_loc_node"),
     pcd_map_fine_.reset(new open3d::geometry::PointCloud);
     queue_maxsize_ = 5;
 
-    pub_baselink2map_ = this->create_publisher<nav_msgs::msg::Odometry>("/baselink2map", 100000);
-    pub_baselink2map_kalman_ = this->create_publisher<nav_msgs::msg::Odometry>("/baselink2map_kalman", 100000);
-    pub_motionlink2map_ = this->create_publisher<nav_msgs::msg::Odometry>("/motionlink2map", 100000);
-    pub_odom2map_ = this->create_publisher<nav_msgs::msg::Odometry>("/odom2map", 100000);
-    pub_odom2map_kalman_ = this->create_publisher<nav_msgs::msg::Odometry>("/odom2map_kalman", 100000);
+    // 队列深度取 100：里程计发布频率约 10-100 Hz，100000 会超过 FastRTPS 的 max_samples 上限，
+    // 在 Foxy + rmw_fastrtps_cpp 下创建 publisher 直接抛 RCLError。
+    pub_baselink2map_ = this->create_publisher<nav_msgs::msg::Odometry>("/baselink2map", 100);
+    pub_baselink2map_kalman_ = this->create_publisher<nav_msgs::msg::Odometry>("/baselink2map_kalman", 100);
+    pub_motionlink2map_ = this->create_publisher<nav_msgs::msg::Odometry>("/motionlink2map", 100);
+    pub_odom2map_ = this->create_publisher<nav_msgs::msg::Odometry>("/odom2map", 100);
+    pub_odom2map_kalman_ = this->create_publisher<nav_msgs::msg::Odometry>("/odom2map_kalman", 100);
 
     pub_map_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/map", rclcpp::QoS(1).transient_local());
     pub_submap_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/submap", 1);
@@ -364,6 +380,17 @@ GloabalLocalization::GloabalLocalization() : Node("global_loc_node"),
     this->get_parameter("initialpose", initialpose_);
     this->get_parameter("dis_updatemap", dis_updatemap_);
 
+    // 下面直接按下标取 6 个分量。参数没加载成功时 initialpose_ 为空，取下标是未定义行为，
+    // 实测会直接段错误。这里先校验，把配置问题变成明确报错。
+    if (initialpose_.size() != 6)
+    {
+        RCLCPP_FATAL(this->get_logger(),
+                     "initialpose 需要 6 个元素 [x, y, z, roll, pitch, yaw]（角度单位：度），实际收到 %zu 个。"
+                     "请检查参数文件路径，以及参数文件里的节点名是否与 %s 一致。",
+                     initialpose_.size(), this->get_name());
+        throw std::invalid_argument("initialpose must contain exactly 6 elements");
+    }
+
     for (auto i : initialpose_)
     {
         std::cout << i << " ";
@@ -402,11 +429,13 @@ GloabalLocalization::GloabalLocalization() : Node("global_loc_node"),
     pcd_map_fine_ = pcd_map_ori_->VoxelDownSample(voxelsize_fine_);
     pcd_map_fine_->EstimateNormals(open3d::geometry::KDTreeSearchParamHybrid(voxelsize_fine_ * 2, 30));
 
-    GetTfTransformToMatrix("base_link", "imu_link", mat_imulink2baselink_);
+    const auto tf_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    RCLCPP_INFO(this->get_logger(), "Waiting up to 5 seconds for required installation TFs");
+    mat_imulink2baselink_ = WaitForStartupTransform("base_link", "imu_link", tf_deadline);
     std::cout << "mat_imulink2baselink_:\n"
               << mat_imulink2baselink_ << std::endl;
 
-    GetTfTransformToMatrix("motion_link", "base_link", mat_baselink2motionlink_);
+    mat_baselink2motionlink_ = WaitForStartupTransform("motion_link", "base_link", tf_deadline);
     std::cout << "mat_baselink2motionlink_:\n"
               << mat_baselink2motionlink_ << std::endl;
 
@@ -440,33 +469,35 @@ Eigen::Matrix3d GloabalLocalization::Euler2Matrix3d(const Eigen::Vector3d euler)
     mat3d = rollAngle * pitchAngle * yawAngle;
     return mat3d;
 }
-bool GloabalLocalization::GetTfTransformToMatrix(std::string frame_id, std::string child_frame_id, Eigen::Matrix4d &matrix)
+Eigen::Matrix4d GloabalLocalization::WaitForStartupTransform(
+    const std::string &target_frame, const std::string &source_frame,
+    std::chrono::steady_clock::time_point deadline)
 {
-    // 获取pose
-    geometry_msgs::msg::TransformStamped pose_;
+    // The listener spins independently. Use steady time because /clock may not be active yet.
+    const rclcpp::Time latest(0);
+    while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline &&
+           !tf_buffer_.canTransform(target_frame, source_frame, latest))
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    geometry_msgs::msg::TransformStamped pose;
     try
     {
-        pose_ = tf_buffer_.lookupTransform(frame_id, child_frame_id, rclcpp::Time(0));
+        pose = tf_buffer_.lookupTransform(target_frame, source_frame, latest);
     }
-    catch (tf2::TransformException &e)
+    catch (const tf2::TransformException &e)
     {
-        RCLCPP_ERROR(this->get_logger(), "[GetTransformMatrix]: %s", e.what());
-        return false;
+        throw std::runtime_error("Required installation TF from " + source_frame +
+                                 " to " + target_frame + " unavailable: " + e.what());
     }
 
-    Eigen::Vector3d translation = Eigen::Vector3d(pose_.transform.translation.x, pose_.transform.translation.y, pose_.transform.translation.z);
-    Eigen::Quaterniond quat = Eigen::Quaterniond::Identity();
-
-    quat = Eigen::Quaterniond(pose_.transform.rotation.w,
-                              pose_.transform.rotation.x,
-                              pose_.transform.rotation.y,
-                              pose_.transform.rotation.z);
-    Eigen::Matrix3d rotation = quat.matrix();
-
-    matrix = Eigen::Matrix4d::Identity();
-    matrix.block<3, 3>(0, 0) = rotation;
-    matrix.matrix().block<3, 1>(0, 3) = translation;
-    return true;
+    const auto &translation = pose.transform.translation;
+    const auto &rotation = pose.transform.rotation;
+    Eigen::Matrix4d matrix = Eigen::Matrix4d::Identity();
+    matrix.block<3, 3>(0, 0) = Eigen::Quaterniond(rotation.w, rotation.x, rotation.y, rotation.z).matrix();
+    matrix.block<3, 1>(0, 3) = Eigen::Vector3d(translation.x, translation.y, translation.z);
+    return matrix;
 }
 
 void GloabalLocalization::CallbackBaselink2Odom(const nav_msgs::msg::Odometry::SharedPtr baselink2odom)
@@ -1051,7 +1082,20 @@ double GloabalLocalization::ComputeMotionDis(const Eigen::Vector3d &a, const Eig
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<GloabalLocalization>();
+
+    std::shared_ptr<GloabalLocalization> node;
+    try
+    {
+        node = std::make_shared<GloabalLocalization>();
+    }
+    catch (const std::exception &e)
+    {
+        // 参数缺失等初始化错误按普通失败退出，避免以未定义行为或段错误结束。
+        RCLCPP_FATAL(rclcpp::get_logger("global_localization_node"),
+                     "节点初始化失败: %s", e.what());
+        rclcpp::shutdown();
+        return 1;
+    }
 
     // 使用多线程执行器，可以指定线程数
     rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);

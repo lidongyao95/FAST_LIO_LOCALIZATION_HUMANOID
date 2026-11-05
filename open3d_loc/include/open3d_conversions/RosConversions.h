@@ -8,10 +8,19 @@
 #include <cmath>
 
 #include <tf2/LinearMath/Vector3.h>
+// Foxy 使用 .h 头文件，Galactic/Humble 起才有 .hpp
+#if __has_include(<tf2_eigen/tf2_eigen.hpp>)
 #include <tf2_eigen/tf2_eigen.hpp>
+#else
+#include <tf2_eigen/tf2_eigen.h>
+#endif
 
 #include <tf2/transform_datatypes.h>
+#if __has_include(<tf2_geometry_msgs/tf2_geometry_msgs.hpp>)
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#else
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#endif
 
 #include <tf2/LinearMath/Transform.h> // 这个在ROS2中仍然存在
 #include <tf2/LinearMath/Quaternion.h>

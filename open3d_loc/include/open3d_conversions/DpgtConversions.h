@@ -14,7 +14,12 @@
 #include <tf2/LinearMath/Transform.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
-#include <tf2_eigen/tf2_eigen.hpp> // 用于 tf2 和 Eigen 的转换
+// Foxy 使用 .h 头文件，Galactic/Humble 起才有 .hpp；用于 tf2 和 Eigen 的转换
+#if __has_include(<tf2_eigen/tf2_eigen.hpp>)
+#include <tf2_eigen/tf2_eigen.hpp>
+#else
+#include <tf2_eigen/tf2_eigen.h>
+#endif
 
 // Eigen Header
 #include <Eigen/Dense>

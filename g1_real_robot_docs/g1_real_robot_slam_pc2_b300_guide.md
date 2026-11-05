@@ -292,6 +292,8 @@ ros2 pkg prefix fast_lio
 ros2 interface show livox_ros_driver2/msg/CustomMsg
 ```
 
+两个路径按实际部署填写：第二台 G1 部署在 `~/ldy/FAST_LIO_LOCALIZATION_HUMANOID` 与 `~/ldy/g1_real_data`。
+
 本机安装包应分别解析到 `$G1_REPO/install/livox_ros_driver2` 与 `$G1_REPO/install/fast_lio`。各采集终端和本机 RViz 使用相同域与 overlay。跨主机 RViz 另按附录 A 验证。
 
 ### 4.2 在 PC2 上准备现有工作区
@@ -314,7 +316,9 @@ PC2 上是 rsync 部署副本。同步时从开发机记录 Git HEAD、未提交
 实机使用 `$G1_REPO/.deps/src/livox_ros_driver2`，由同一工作区安装。安装副本已核对：
 
 - `config/MID360_config.json` 中雷达地址为 `192.168.123.120`，五个 `host_net_info` 接收地址均为 PC2 的 `192.168.123.164`，JSON 外参为零。
-- `launch_ROS2/msg_MID360_launch.py` 使用 `xfer_format=1`、`frame_id='livox_frame'`，并将 `/livox/lidar` 重映射为 `/livox/custom_msg`。配置含义见 [Livox 官方驱动说明](https://github.com/Livox-SDK/livox_ros_driver2)。
+- `launch_ROS2/msg_MID360_launch.py` 使用 `xfer_format=1`、`frame_id='livox_frame'`，把点云以 `livox_ros_driver2/msg/CustomMsg` 发到 **`/livox/lidar`**。该 launch **没有**做话题重映射，因此不存在 `/livox/custom_msg`；若工作区其他配置仍按该名订阅，要么改用 `/livox/lidar`，要么在 launch 的 `Node(...)` 中加 `remappings=[('/livox/lidar', '/livox/custom_msg')]`。配置含义见 [Livox 官方驱动说明](https://github.com/Livox-SDK/livox_ros_driver2)。2026-11-05 在第二台 G1 上实测确认，见[部署与构建排障 §12](debug_log/2026-11-05_pc2_build_pitfalls.md)。
+- 安装后的 launch 位于 `share/livox_ros_driver2/launch_ROS2/` 子目录，`ros2 launch livox_ros_driver2 msg_MID360_launch.py` 会报找不到文件，需给出绝对路径。
+
 
 同步代码前保存这两处 PC2 改动。更改驱动源码配置后重新构建并检查安装副本。历史驱动中的 180° 补偿属于另一版本。当前零外参仅描述驱动配置，雷达实际安装方向、FAST-LIO 外参与导航机体变换仍需现场核对。
 
@@ -340,14 +344,14 @@ ss -ulpn
 终端 D：加载第 4.2、4.4 节运行环境，启动：
 
 ```bash
-ros2 launch livox_ros_driver2 msg_MID360_launch.py
+ros2 launch "$G1_REPO/install/livox_ros_driver2/share/livox_ros_driver2/launch_ROS2/msg_MID360_launch.py"
 ```
 
 终端 Q：使用相同运行环境检查：
 
 ```bash
 ros2 topic list -t
-ros2 topic info /livox/custom_msg --verbose
+ros2 topic info /livox/lidar --verbose
 ros2 topic info /livox/imu --verbose
 ```
 
@@ -359,7 +363,7 @@ ros2 topic info /livox/imu --verbose
 
 | 话题 | 类型 | 发布者 → 使用者 | 坐标/用途 |
 |---|---|---|---|
-| `/livox/custom_msg` | `livox_ros_driver2/msg/CustomMsg` | 驱动 → FAST-LIO | 候选驱动配置为 `livox_frame`，输出坐标需核查 |
+| `/livox/lidar` | `livox_ros_driver2/msg/CustomMsg` | 驱动 → FAST-LIO | 候选驱动配置为 `livox_frame`，输出坐标需核查 |
 | `/livox/imu` | `sensor_msgs/msg/Imu` | 驱动 → FAST-LIO | 真机为雷达内置 IMU，不是仿真骨盆 IMU |
 | `/Odometry_loc` | `nav_msgs/msg/Odometry` | FAST-LIO → 定位/适配器 | `camera_init` 下的 `body` 位姿 |
 | `/cloud_registered_1` | `sensor_msgs/msg/PointCloud2` | FAST-LIO → 定位 | `camera_init` 下的扫描 |
@@ -372,8 +376,8 @@ ros2 topic info /livox/imu --verbose
 
 ```bash
 ros2 topic echo /livox/imu --once
-ros2 topic echo /livox/custom_msg --field header --once
-ros2 topic echo /livox/custom_msg --field point_num --once
+ros2 topic echo /livox/lidar --field header --once
+ros2 topic echo /livox/lidar --field point_num --once
 ```
 
 这些命令只用于抽查；连续性需要对一段录包做统计。
@@ -395,7 +399,7 @@ ros2 topic echo /livox/custom_msg --field point_num --once
 终端 R 使用相同 overlay：
 
 ```bash
-ros2 bag record -o "$G1_DATA/bags/static_02" /livox/custom_msg /livox/imu
+ros2 bag record -o "$G1_DATA/bags/static_02" /livox/lidar /livox/imu
 ```
 
 现场保持静止，记录一段足够观察时间连续性的数据后 Ctrl-C，等待录制器退出，再检查：
@@ -439,7 +443,7 @@ cp "$G1_REPO/FAST_LIO/config/mid360.yaml" "$G1_DATA/config/mid360_real.yaml"
 保持驱动运行，终端 R 启动：
 
 ```bash
-ros2 bag record -o "$G1_DATA/bags/map_A_01" /livox/custom_msg /livox/imu
+ros2 bag record -o "$G1_DATA/bags/map_A_01" /livox/lidar /livox/imu
 ```
 
 开始时在 B300 门口、演示时的初始朝向静止约 10 秒作为首次采集建议，确认输入正常再遥控行走；初始化是否完成仍以算法状态和数据为准，不以固定等待秒数判断。走遍需要覆盖的区域，尽量让相邻路段有共同可见结构，并回到可辨认的位置。遥控行走时安排一人跟在机体侧后方，避免撞到门框、墙角和走廊里的杂物。
@@ -908,7 +912,7 @@ source "$G1_REPO/scripts/walking_env.sh"
    ```bash
    rviz2 -d "$G1_REPO/FAST_LIO/rviz/fastlio.rviz"
    ```
-   确认 **Fixed Frame = `camera_init`**，启用 **PointCloud2 → `/cloud_registered_1`**。该话题是 FAST-LIO 配准后的点云，原始 `/livox/custom_msg` 是 Livox 自定义类型。若要看里程计，把配置的 Odometry 话题改为 `/Odometry_loc`。
+   确认 **Fixed Frame = `camera_init`**，启用 **PointCloud2 → `/cloud_registered_1`**。该话题是 FAST-LIO 配准后的点云，原始 `/livox/lidar` 是 Livox 自定义类型。若要看里程计，把配置的 Odometry 话题改为 `/Odometry_loc`。
 3. 终端三用 `ros2 bag info "$G1_DATA/bags/static_01"` 验证播放器能读取包，再启动回放：
    ```bash
    ros2 bag play "$G1_DATA/bags/static_01"
@@ -972,4 +976,4 @@ source "$G1_REPO/scripts/walking_env.sh"
 
 外部资料：2026-11-04 核实阶段查阅了 Livox 和 Unitree 官方仓库；Nav2 TF 指南访问未成功，Nav2 外链及 Humble 适用性尚待复核。[Livox 官方驱动说明](https://github.com/Livox-SDK/livox_ros_driver2)用于核对驱动格式与配置入口；[Nav2 首次配置指南](https://docs.nav2.org/rolling/configuration_and_development/first_time_robot_setup_guide/)用于整体接口；[Unitree 官方 G1 LocoClient](https://github.com/unitreerobotics/unitree_sdk2/blob/main/include/unitree/robot/g1/loco/g1_loco_client.hpp)用于控制接口阅读。在线 main/rolling 会变化，操作以本机固定版本及现场设备支持范围为准。开源许可和二进制分发范围按各组件固定版本的许可证核对，本文不使用“整套完全开源”的概括。
 
-本地源码基线：主仓库 `022afb832d0dd4d7f67d06796d3f6194a859b4f2`；Unitree SDK `d1abf001220d3e5f59e00a0c4aaa595e00089a4a`；历史驱动候选 `e4234d4e559548bfe0afdf407990bfb206e183c0:livox_ros_driver2/`。未提交修改须另存 diff 和状态记录。2026-11-04 本轮仅完成文档纠错，后续实现和现场验收状态见[修改计划](g1_real_robot_slam_pc2_b300_modification_plan.md)。
+本地源码基线：主仓库 `022afb832d0dd4d7f67d06796d3f6194a859b4f2`；Unitree SDK `d1abf001220d3e5f59e00a0c4aaa595e00089a4a`；历史驱动候选 `e4234d4e559548bfe0afdf407990bfb206e183c0:livox_ros_driver2/`。未提交修改须另存 diff 和状态记录。2026-11-04 本轮仅完成文档纠错；现场验收状态见[真机验证状态](README.md)，实现与排障细节见[调试记录](debug_log/README.md)。

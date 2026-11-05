@@ -189,8 +189,17 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
 
     N ++;
   }
+  // 全零加速度说明 IMU 没有有效数据（传感器故障或订到全零话题）。此时 mean_acc.norm() 为 0，
+  // 继续计算会把重力方向变成 NaN 并污染整个状态，因此直接放弃本次初始化，保持等待有效数据。
+  const double acc_norm = mean_acc.norm();
+  if (acc_norm < 1e-6)
+  {
+    std::cerr << "[FAST-LIO] IMU acceleration norm is zero, skip gravity initialisation" << std::endl;
+    return;
+  }
+
   state_ikfom init_state = kf_state.get_x();
-  init_state.grav = S2(- mean_acc / mean_acc.norm() * G_m_s2);
+  init_state.grav = S2(- mean_acc / acc_norm * G_m_s2);
   
   //state_inout.rot = Eye3d; // Exp(mean_acc.cross(V3D(0, 0, -1 / scale_gravity)));
   init_state.bg  = mean_gyr;
@@ -257,7 +266,9 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
 
     // fout_imu << setw(10) << head->header.stamp.toSec() - first_lidar_time << " " << angvel_avr.transpose() << " " << acc_avr.transpose() << endl;
 
-    acc_avr     = acc_avr * G_m_s2 / mean_acc.norm(); // - state_inout.ba;
+    // mean_acc 在初始化阶段已校验为非零；这里再取一次局部值并兜底，避免异常输入把状态变成 NaN
+    const double acc_norm = (mean_acc.norm() > 1e-6) ? mean_acc.norm() : 1.0;
+    acc_avr     = acc_avr * G_m_s2 / acc_norm; // - state_inout.ba;
 
     if(head_stamp < last_lidar_end_time_)
     {
@@ -356,6 +367,12 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
     state_ikfom imu_state = kf_state.get_x();
     if (init_iter_num > MAX_INI_COUNT)
     {
+      // 全零加速度下不能判定初始化完成，保持 imu_need_init_ 为真继续等待有效数据
+      if (mean_acc.norm() < 1e-6)
+      {
+        std::cerr << "[FAST-LIO] IMU acceleration norm is zero, keep waiting for valid IMU data" << std::endl;
+        return;
+      }
       cov_acc *= pow(G_m_s2 / mean_acc.norm(), 2);
       imu_need_init_ = false;
 
