@@ -241,7 +241,7 @@ remappings=[('/livox/lidar', '/livox/custom_msg')],
 
 该历史 launch 的 `xfer_format=1` 输出 CustomMsg，`publish_freq=10.0`。修改 `config/MID360_config.json` 的接收地址为实际运行驱动的主机地址；点云、IMU、命令等 IP 字段要逐项核对，不能只改其中一个。
 
-2026-11-05 在第二台 G1 上未添加上述 remapping，驱动直接发 `/livox/lidar`（CustomMsg）；实测记录见[部署与构建排障 §12](debug_log/2026-11-05_pc2_build_pitfalls.md)。两种做法只能选一种，录包、FAST-LIO 参数和 RViz 都要跟着统一。
+2026-11-05 在第二台 G1 上未添加上述 remapping，驱动直接发 `/livox/lidar`（CustomMsg）；实测记录见[静止基线采集](debug_log/2026-11-05_pc2_build_pitfalls.md#4-静止基线采集)。两种做法只能选一种，录包、FAST-LIO 参数和 RViz 都要跟着统一。
 
 确认点云和 IMU 输出坐标的处理后，再决定是否保留配置中的 180° 旋转。将选用方案写入记录，不能在后续 FAST-LIO/TF 中再无意补偿一次。
 

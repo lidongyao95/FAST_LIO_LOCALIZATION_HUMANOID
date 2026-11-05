@@ -35,7 +35,7 @@ ros2 interface show livox_ros_driver2/msg/CustomMsg
 3. 启动驱动。本仓库的 launch 安装在 `share/livox_ros_driver2/launch_ROS2/` 子目录，`ros2 launch livox_ros_driver2 msg_MID360_launch.py` 会报找不到文件，需给绝对路径：`ros2 launch "$G1_REPO/install/livox_ros_driver2/share/livox_ros_driver2/launch_ROS2/msg_MID360_launch.py"`。在放行条件内采集静止基线，例如 `ros2 bag record -o "$G1_DATA/bags/static_02" /livox/lidar /livox/imu`。录制 10–15 s 后停止，用 `ros2 bag info "$G1_DATA/bags/static_02"` 复核两路计数与时长，抽查静止加速度模长及方向，记录统计窗口。
 4. 分别检查实际采样率、各路消息头连续性与单调性、点云帧内逐点时间、点云与 IMU 的动态对齐。历史约 10 Hz 点云与 200 Hz IMU 只作为量级参照。静止数据支持静止检查，动态对齐需另用受控运动样本验证。
 
-**话题名。** 2026-11-05 实测该驱动配置只发布 `/livox/lidar`（`livox_ros_driver2/msg/CustomMsg`，`xfer_format=1`）和 `/livox/imu`，没有 `/livox/custom_msg`；本仓库的 launch 文件未做话题重映射。若沿用 `/livox/custom_msg` 这一名称，须先自行在 launch 中加 remapping，否则录包和 FAST-LIO 都订不上。细节见[部署与构建排障 §12](2026-11-05_pc2_build_pitfalls.md)。
+**话题名。** 2026-11-05 实测该驱动配置只发布 `/livox/lidar`（`livox_ros_driver2/msg/CustomMsg`，`xfer_format=1`）和 `/livox/imu`，没有 `/livox/custom_msg`；本仓库的 launch 文件未做话题重映射。若沿用 `/livox/custom_msg` 这一名称，须先自行在 launch 中加 remapping，否则录包和 FAST-LIO 都订不上。细节见[静止基线采集](2026-11-05_pc2_build_pitfalls.md#4-静止基线采集)。
 
 跨机观察按部署指南附录 A 配置 DDS。离线运行使用独立 ROS 域，各回放终端配置一致，并检查同域无实时驱动和重复播放器。
 
