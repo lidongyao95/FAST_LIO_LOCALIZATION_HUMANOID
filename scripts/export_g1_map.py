@@ -2,6 +2,7 @@
 """Convert FAST-LIO binary PCD into paired Open3D and Nav2 map assets."""
 import argparse
 import json
+import math
 from pathlib import Path
 import cv2
 import numpy as np
@@ -31,27 +32,38 @@ def read_pcd(path):
         xyz=np.column_stack([points[k].astype(np.float32) for k in ('x','y','z')])
         return xyz[np.isfinite(xyz).all(axis=1)]
 
-def export(source,out,resolution,known_free_radius):
+def export(source, out, resolution, known_free_radius, *, floor_band=.15,
+           obstacle_min=.2, obstacle_max=1.8, max_range=None):
+    values = (resolution, known_free_radius, floor_band, obstacle_min, obstacle_max)
+    if not all(map(math.isfinite, values)):
+        raise ValueError('Projection parameters must be finite')
+    if resolution <= 0 or floor_band <= 0 or known_free_radius < 0:
+        raise ValueError('Resolution and floor band must be positive, and free radius nonnegative')
+    if obstacle_min >= obstacle_max:
+        raise ValueError('Obstacle minimum must be below obstacle maximum')
+    if max_range is not None and (not math.isfinite(max_range) or max_range <= 0):
+        raise ValueError('Maximum range must be finite and positive')
     xyz=read_pcd(source)
     if len(xyz)<100:raise ValueError('Map has too few finite points')
-    out.mkdir(parents=True,exist_ok=True)
-    ply=out/'map.ply'
-    with ply.open('w') as f:
-        f.write(f'ply\nformat ascii 1.0\nelement vertex {len(xyz)}\nproperty float x\nproperty float y\nproperty float z\nend_header\n')
-        np.savetxt(f,xyz,fmt='%.4f')
-    floor_z=float(np.percentile(xyz[:,2],5))
-    ox=float(np.floor((xyz[:,0].min()-.5)/resolution)*resolution)
-    oy=float(np.floor((xyz[:,1].min()-.5)/resolution)*resolution)
-    width=int(np.ceil((xyz[:,0].max()+.5-ox)/resolution))
-    height=int(np.ceil((xyz[:,1].max()+.5-oy)/resolution))
+    # Range is measured in the map plane about the mapping start. Keep
+    # the paired 3D localization map intact.
+    projected = xyz if max_range is None else xyz[np.hypot(xyz[:, 0], xyz[:, 1]) <= max_range]
+    if len(projected) < 100:
+        raise ValueError('Too few points remain for occupancy projection')
+    z_percentiles = dict(zip(('5', '50', '95'), map(float, np.percentile(projected[:, 2], [5, 50, 95]))))
+    floor_z=z_percentiles['5']
+    ox=float(np.floor((projected[:,0].min()-.5)/resolution)*resolution)
+    oy=float(np.floor((projected[:,1].min()-.5)/resolution)*resolution)
+    width=int(np.ceil((projected[:,0].max()+.5-ox)/resolution))
+    height=int(np.ceil((projected[:,1].max()+.5-oy)/resolution))
     if width*height>8_000_000:raise ValueError('Projected occupancy map is too large')
-    ix=np.floor((xyz[:,0]-ox)/resolution).astype(int)
-    iy=np.floor((xyz[:,1]-oy)/resolution).astype(int)
+    ix=np.floor((projected[:,0]-ox)/resolution).astype(int)
+    iy=np.floor((projected[:,1]-oy)/resolution).astype(int)
     floor=np.zeros((height,width),np.uint8)
     obstacle=np.zeros_like(floor)
-    floor_band=np.abs(xyz[:,2]-floor_z)<.15
-    obstacle_band=(xyz[:,2]>floor_z+.2)&(xyz[:,2]<floor_z+1.8)
-    floor[iy[floor_band],ix[floor_band]]=1
+    floor_mask=np.abs(projected[:,2]-floor_z)<floor_band
+    obstacle_band=(projected[:,2]>floor_z+obstacle_min)&(projected[:,2]<floor_z+obstacle_max)
+    floor[iy[floor_mask],ix[floor_mask]]=1
     obstacle[iy[obstacle_band],ix[obstacle_band]]=1
     cover=cv2.dilate(floor,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(int(.8/resolution)//2*2+1,)*2))
     if known_free_radius>0:
@@ -61,6 +73,14 @@ def export(source,out,resolution,known_free_radius):
     image=np.full((height,width),205,np.uint8)
     image[cover>0]=254
     image[occupied>0]=0
+    origin_x = math.floor(-ox / resolution)
+    origin_y = math.floor(-oy / resolution)
+    origin_cell = int(image[origin_y, origin_x]) if 0 <= origin_x < width and 0 <= origin_y < height else None
+    out.mkdir(parents=True,exist_ok=True)
+    ply=out/'map.ply'
+    with ply.open('w') as f:
+        f.write(f'ply\nformat ascii 1.0\nelement vertex {len(xyz)}\nproperty float x\nproperty float y\nproperty float z\nend_header\n')
+        np.savetxt(f,xyz,fmt='%.4f')
     with (out/'map.pgm').open('wb') as f:
         f.write(f'P5\n{width} {height}\n255\n'.encode());f.write(image[::-1].tobytes())
     (out/'map.yaml').write_text(f'image: map.pgm\nmode: trinary\nresolution: {resolution}\n'
@@ -68,6 +88,10 @@ def export(source,out,resolution,known_free_radius):
     meta={'source_pcd':str(source.resolve()),'frame':'camera_init','map_from_camera_init':[0,0,0,0,0,0],
           'points':len(xyz),'floor_z':floor_z,'resolution':resolution,'origin':[ox,oy,0],
           'size':[width,height],'known_free_radius':known_free_radius,
+          'projected_points': len(projected), 'max_range': max_range,
+          'z_percentiles': z_percentiles, 'floor_band': floor_band,
+          'obstacle_min': obstacle_min, 'obstacle_max': obstacle_max,
+          'origin_cell': origin_cell,
           'free_cells':int((image==254).sum()),
           'occupied_cells':int((image==0).sum()),'unknown_cells':int((image==205).sum())}
     (out/'metadata.json').write_text(json.dumps(meta,indent=2))
@@ -78,6 +102,15 @@ def main():
     p.add_argument('--resolution',type=float,default=.1)
     p.add_argument('--known-free-radius',type=float,default=1.5,
                    help='Verified clear radius around initial camera_init origin; obstacles still take precedence')
+    p.add_argument('--floor-band', type=float, default=.15, help='Ground band half-width in metres')
+    p.add_argument('--obstacle-min', type=float, default=.2, help='Minimum obstacle height above estimated ground')
+    p.add_argument('--obstacle-max', type=float, default=1.8, help='Maximum obstacle height above estimated ground')
+    p.add_argument('--max-range', type=float, help='Limit 2D projection to this radius in metres around the mapping start')
     args=p.parse_args()
-    export(args.pcd,args.out,args.resolution,args.known_free_radius)
+    try:
+        export(args.pcd, args.out, args.resolution, args.known_free_radius,
+               floor_band=args.floor_band, obstacle_min=args.obstacle_min,
+               obstacle_max=args.obstacle_max, max_range=args.max_range)
+    except ValueError as error:
+        p.error(str(error))
 if __name__=='__main__':main()
