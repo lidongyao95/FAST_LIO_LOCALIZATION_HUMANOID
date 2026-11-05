@@ -6,6 +6,7 @@
 - [2026-11-05 第二台 G1 的 PC2 部署与构建排障](2026-11-05_pc2_build_pitfalls.md)
 - [2026-11-05 C 段规划链、时钟与障碍源的离线验证](2026-11-05_pc2_nav_clock_and_obstacle_source.md)
 - [2026-11-05 第二台 G1 A 段进展与待验证项](2026-11-05_a_segment_open_items.md)
+- [2026-11-05 随行吊架掩膜、分支统一与资源现状](2026-11-05_hang_rig_mask_and_status.md)
 - [当前验证状态](../README.md)
 - [PC2 单机与 B300 部署指南](../g1_real_robot_slam_pc2_b300_guide.md)
 
