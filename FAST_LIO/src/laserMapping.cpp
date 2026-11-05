@@ -34,8 +34,10 @@
 // POSSIBILITY OF SUCH DAMAGE.
 #include <omp.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <stdexcept>
 #include <system_error>
 #include <mutex>
 #include <math.h>
@@ -87,6 +89,27 @@ const float MOV_THRESHOLD = 1.5f;
 double time_diff_lidar_to_imu = 0.0;
 // Raw sensor input only: rotate LiDAR and IMU together about X by pi.
 bool input_roll_180 = false;
+// Boxes {x_min, y_min, z_min, x_max, y_max, z_max} in the LiDAR frame after
+// input_roll_180 compensation. Use them only for structures carried rigidly
+// with the sensor; anything fixed in the world sweeps through them.
+vector<double> mask_boxes;
+
+void remove_masked_points(PointCloudXYZI &cloud)
+{
+    if (mask_boxes.empty())
+        return;
+    const auto inside = [](const PointType &p) {
+        for (size_t i = 0; i < mask_boxes.size(); i += 6)
+            if (p.x >= mask_boxes[i] && p.x <= mask_boxes[i + 3] &&
+                p.y >= mask_boxes[i + 1] && p.y <= mask_boxes[i + 4] &&
+                p.z >= mask_boxes[i + 2] && p.z <= mask_boxes[i + 5])
+                return true;
+        return false;
+    };
+    cloud.points.erase(remove_if(cloud.points.begin(), cloud.points.end(), inside), cloud.points.end());
+    cloud.width = cloud.points.size();
+    cloud.height = 1;
+}
 
 mutex mtx_buffer;
 condition_variable sig_buffer;
@@ -316,6 +339,7 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
     p_pre->process(msg, ptr);
     if (input_roll_180)
         for (auto &point : ptr->points) { point.y = -point.y; point.z = -point.z; }
+    remove_masked_points(*ptr);
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(cur_time);
     last_timestamp_lidar = cur_time;
@@ -360,6 +384,7 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg)
     p_pre->process(msg, ptr);
     if (input_roll_180)
         for (auto &point : ptr->points) { point.y = -point.y; point.z = -point.z; }
+    remove_masked_points(*ptr);
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(last_timestamp_lidar);
 
@@ -864,6 +889,7 @@ public:
         this->declare_parameter<int>("preprocess.scan_line", 16);
         this->declare_parameter<int>("preprocess.timestamp_unit", US);
         this->declare_parameter<int>("preprocess.scan_rate", 10);
+        this->declare_parameter<vector<double>>("preprocess.mask_boxes", vector<double>());
         this->declare_parameter<int>("point_filter_num", 2);
         this->declare_parameter<bool>("feature_extract_enable", false);
         this->declare_parameter<bool>("runtime_pos_log_enable", false);
@@ -902,6 +928,16 @@ public:
         this->get_parameter_or<int>("preprocess.scan_line", p_pre->N_SCANS, 16);
         this->get_parameter_or<int>("preprocess.timestamp_unit", p_pre->time_unit, US);
         this->get_parameter_or<int>("preprocess.scan_rate", p_pre->SCAN_RATE, 10);
+        this->get_parameter_or<vector<double>>("preprocess.mask_boxes", mask_boxes, vector<double>());
+        if (mask_boxes.size() % 6 != 0)
+            throw std::invalid_argument("preprocess.mask_boxes needs six values per box");
+        for (size_t i = 0; i < mask_boxes.size(); i += 6)
+            for (size_t axis = 0; axis < 3; ++axis)
+                if (!std::isfinite(mask_boxes[i + axis]) || !std::isfinite(mask_boxes[i + axis + 3]) ||
+                    mask_boxes[i + axis] >= mask_boxes[i + axis + 3])
+                    throw std::invalid_argument("preprocess.mask_boxes needs finite minima below maxima");
+        if (!mask_boxes.empty())
+            RCLCPP_INFO(this->get_logger(), "Masking %zu LiDAR-frame boxes", mask_boxes.size() / 6);
         this->get_parameter_or<int>("point_filter_num", p_pre->point_filter_num, 2);
         this->get_parameter_or<bool>("feature_extract_enable", p_pre->feature_enabled, false);
         this->get_parameter_or<bool>("runtime_pos_log_enable", runtime_pos_log, 0);
