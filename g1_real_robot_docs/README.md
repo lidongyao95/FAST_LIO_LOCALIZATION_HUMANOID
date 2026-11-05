@@ -25,3 +25,10 @@ Ubuntu 本地回放与实时查看见 [部署指南附录 A.1](g1_real_robot_sla
 - [2026-11-04 本地仿真调试记录](debug_log/2026-11-04_scan_navigation.md)
 
 以上为本地离线/仿真流程，不改变上表真机验收状态。
+
+## 已弃用方案
+
+本项目**不使用 G1 官方 SLAM 栈**（整机 PC1 上的 `unitree_slam`、`slam_mapping`/`slam_relocation` 等），建图、定位与导航统一采用本仓库的 FAST-LIO 方案。以下文档仅作为历史调研与排障记录保留，内容不再维护，结论不代表当前方案：
+
+- [G1 官方 SLAM 栈实战：平地建图与绕障导航](deprecated/g1_official_slam_obstacle_navigation.md)
+
