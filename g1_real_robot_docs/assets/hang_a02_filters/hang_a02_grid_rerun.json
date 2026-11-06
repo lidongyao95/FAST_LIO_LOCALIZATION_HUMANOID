@@ -1,0 +1,54 @@
+{
+  "shape_xy": [
+    231,
+    235
+  ],
+  "origin": [
+    -10.6,
+    -11.8,
+    0.0
+  ],
+  "resolution_m": 0.1,
+  "comparisons": [
+    {
+      "before": "Original delivery",
+      "after": "Legacy script rerun",
+      "changed": 61,
+      "interior": 0,
+      "start": 0,
+      "transitions": {
+        "Free → Unknown": 22,
+        "Occupied → Unknown": 8,
+        "Unknown → Free": 27,
+        "Unknown → Occupied": 4
+      }
+    },
+    {
+      "before": "Original delivery",
+      "after": "Parameterized rerun",
+      "changed": 80,
+      "interior": 1,
+      "start": 0,
+      "transitions": {
+        "Free → Occupied": 1,
+        "Free → Unknown": 47,
+        "Occupied → Unknown": 3,
+        "Unknown → Free": 23,
+        "Unknown → Occupied": 6
+      }
+    },
+    {
+      "before": "Legacy script rerun",
+      "after": "Parameterized rerun",
+      "changed": 88,
+      "interior": 1,
+      "start": 0,
+      "transitions": {
+        "Free → Unknown": 52,
+        "Occupied → Unknown": 3,
+        "Unknown → Free": 22,
+        "Unknown → Occupied": 11
+      }
+    }
+  ]
+}

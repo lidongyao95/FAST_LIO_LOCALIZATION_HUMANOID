@@ -16,3 +16,6 @@ In `plaster-map/mujoco`, run `trial.py` with the walking simulation environment
 and `MUJOCO_GL=egl` to generate the scene, OBJ, screenshots and probe results.
 Run `navigation_assets.py` with NumPy and OpenCV to reproject the occupancy map
 and localization point cloud into the scene's world frame.
+
+See [the filter and visualization guide](../../g1_real_robot_docs/hang_a02_point_cloud_filters.md)
+for tuning parameters, GPU RViz reproduction, and aligned map rerun comparisons.
