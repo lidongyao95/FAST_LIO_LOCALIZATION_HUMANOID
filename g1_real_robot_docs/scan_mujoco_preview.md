@@ -129,3 +129,64 @@ MuJoCo 中 G1 同步运动。不要同时运行自动发目标测试，以免相
 
 本次[调试与验证记录](debug_log/2026-11-04_scan_navigation.md)区分了离线建图、
 物理碰撞和 Nav2 到达结果。这些结果不代替真机导航验收。
+
+## 5. 4322 石膏版手动导航
+
+本节使用实测扫描重建石膏场景，并在 4322 的 MuJoCo 中运行模拟 G1。下文命令以 B300 门口生成的一套场景和配套地图为例。
+彩虹对比、DUFOMap、石膏预览和原坐标系二维地图见
+[点云过滤与选参说明](hang_a02_point_cloud_filters.md)。石膏 OBJ 用于显示，
+碰撞和模拟雷达使用同场景的平地与独立障碍体素。
+
+### 场景文件
+
+在 4322 上使用 `~/ldy/hang-a02-filter-comparison/plaster-map/mujoco/` 中成套的
+`scene.xml`、`plaster.obj`、`world-cloud.ply`、`world-map.yaml` 和
+`world-map.pgm`。`trial.json` 保存仿真变换与试跑结果。场景 XML 引用 4322 的绝对路径。
+需要重建时，按[实验脚本说明](../scripts/hang_a02/README.md)运行 `trial.py`
+和 `navigation_assets.py`。后者将点云和二维图转换到仿真 world，定位和导航均使用转换后的文件。
+
+### 启动与交接
+
+从 Mac 可用 `ssh -B ipsec0 -p 4322 sjtu@202.121.181.124` 登录。
+每个终端执行同样的环境设置。这里用上次试跑的域 149，若该域已有会话，先检查其状态，
+或为整套新会话选择一个空闲域。可视窗口打开在 4322 的 `:0` 桌面。
+
+```bash
+cd "$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID"
+export DISPLAY=:0 ROS_DOMAIN_ID=149 ROS_LOCALHOST_ONLY=1
+export __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia
+scene="$HOME/ldy/hang-a02-filter-comparison/plaster-map/mujoco"
+```
+
+按顺序在独立终端执行。每一步就绪后再继续。
+
+| 顺序 | 命令 | 就绪判据 |
+|---|---|---|
+| 1 仿真 | `./scripts/start_walking_sim.sh --model-path "$scene/scene.xml" --start-x 3.987606 --start-y 5.249173` | MuJoCo 窗口显示石膏场景，日志出现 `DDS mode`。 |
+| 2 控制 | `./scripts/start_g1_controller.sh` | 日志出现 `FSM: Start Passive`。 |
+| 3 定位 | `./scripts/start_g1_localization.sh map_ply:="$scene/world-cloud.ply" initial_x:=3.987606 initial_y:=5.249173 initial_z:=0.793 initial_yaw:=0.0 show_rviz:=false` | Open3D 完成初始化且位姿持续更新。 |
+| 4 站立 | `./scripts/g1_operator.sh prepare` | `status` 返回 `controller_mode: 3`、`released: true`、`odom_fresh: true`。 |
+| 5 Nav2 | `./scripts/start_g1_navigation.sh map_yaml:="$scene/world-map.yaml" rviz:=false` | 日志出现 `All G1 Nav2 lifecycle nodes active`。 |
+| 6 RViz | 见下方命令 | 显示石膏版配套二维图，导航目标工具可用。 |
+| 7 开启手动导航 | `./scripts/g1_operator.sh enable-nav` | `status` 返回 `nav_ready: true`。 |
+
+```bash
+source scripts/walking_env.sh
+rviz_config="$scene/manual/Plaster-Navigation.rviz"
+if [ ! -s "$rviz_config" ]; then
+  rviz_config="$PWD/open3d_loc/rviz_cfg/g1_navigation.rviz"
+fi
+glxinfo -B | grep 'OpenGL renderer'
+rviz2 -d "$rviz_config" --ros-args -p use_sim_time:=true &
+rviz_pid=$!
+# 等窗口打开后核对 RViz 进程的 GPU 占用。
+nvidia-smi | grep "$rviz_pid"
+```
+
+默认 RViz 配置打开后可缩放并平移到地图坐标约 `(4.0, 5.25) m`。
+选择 **Nav2 Goal**，从机器人附近的空闲区开始，按住左键拖动设定朝向后松开。
+停止时运行 `./scripts/g1_operator.sh stop`，然后按 RViz、Nav2、定位、控制、仿真的顺序关闭。
+
+上次已在 4322 验证模拟定位、Nav2 激活、运动门禁和 `/navigate_to_pose` 服务端就绪，
+并确认 RViz 使用 RTX 4090。日志出现过代价地图因点云时间早于 TF 缓存而丢帧。
+现场复现时同时观察两张代价地图及 TF。手动到点结果以实际试跑记录为准。

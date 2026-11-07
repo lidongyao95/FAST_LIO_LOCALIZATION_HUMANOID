@@ -300,3 +300,6 @@ ros2 run tf2_ros tf2_echo map base_footprint
 先生成场景和配对地图，再用 `start_walking_sim.sh --model-path ...` 加载场景，
 定位与导航分别显式传入对应 `map_ply`、`map_yaml`。地面扩展和碰撞体素属于仿真近似，
 不能直接作为真机导航验收结果。
+
+使用实测点云生成的石膏网格时，按[4322 石膏版手动导航](g1_real_robot_docs/scan_mujoco_preview.md#5-4322-石膏版手动导航)
+加载配套场景、定位点云和二维图。该节给出了初始位姿、RViz 配置和交接判据。
