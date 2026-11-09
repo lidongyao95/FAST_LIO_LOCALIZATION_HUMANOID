@@ -30,7 +30,7 @@
 | B300 建图 | B300 门口已录制静止基线和吊架移动数据，后者已完成离线候选地图和石膏预览。正式行走建图与实机地图验收仍待完成。 |
 | 重定位与导航 | `open3d_loc` 的 ARM 预编译 Open3D 运行时冒烟通过：能加载 PCD 地图、发布 11 个话题、常驻 RSS 约 38.7 MiB，配准流程可执行。修复安装 TF 启动时序后，同一静止录包与地图的回放完成了初始化和稳态配准。**B 段正式重定位仍待验收**。C 段的规划入口 `mode:=plan`（只起 map_server、planner_server 与其内部 global costmap）已在 PC2/Foxy 与 4322/Humble 双端复测：参数读回、三个规划用例与障碍层标记/清除均通过，PC2 仍无 `nav2_bringup` 但该入口不需要它。现场实时验收（正式地图、实测外参、动态数据）未做；TF、速度桥、停止与接管未验。 |
 
-本轮细节见 [第二台 G1 的 PC2 部署与构建排障](debug_log/2026-11-05_pc2_build_pitfalls.md)；C 段规划链、时钟与障碍源的双端验证见 [对应记录](debug_log/2026-11-05_pc2_nav_clock_and_obstacle_source.md)。
+本轮部署、排障和规划验证见 [第二台 G1 调试汇总](debug_log/2026-11-05_g1_pc2_debug_summary.md)。
 
 Ubuntu 本地回放与实时查看见 [部署指南附录 A.1](g1_real_robot_slam_pc2_b300_guide.md#a1-在-ubuntu-本地查看现有录包)。
 

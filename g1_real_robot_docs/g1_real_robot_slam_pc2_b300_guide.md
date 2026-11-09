@@ -316,7 +316,7 @@ PC2 上是 rsync 部署副本。同步时从开发机记录 Git HEAD、未提交
 实机使用 `$G1_REPO/.deps/src/livox_ros_driver2`，由同一工作区安装。安装副本已核对：
 
 - `config/MID360_config.json` 中雷达地址为 `192.168.123.120`，五个 `host_net_info` 接收地址均为 PC2 的 `192.168.123.164`，JSON 外参为零。
-- `launch_ROS2/msg_MID360_launch.py` 使用 `xfer_format=1`、`frame_id='livox_frame'`，把点云以 `livox_ros_driver2/msg/CustomMsg` 发到 **`/livox/lidar`**。该 launch **没有**做话题重映射，因此不存在 `/livox/custom_msg`；若工作区其他配置仍按该名订阅，要么改用 `/livox/lidar`，要么在 launch 的 `Node(...)` 中加 `remappings=[('/livox/lidar', '/livox/custom_msg')]`。配置含义见 [Livox 官方驱动说明](https://github.com/Livox-SDK/livox_ros_driver2)。2026-11-05 在第二台 G1 上实测确认，见[静止基线采集](debug_log/2026-11-05_pc2_build_pitfalls.md#4-静止基线采集)。
+- `launch_ROS2/msg_MID360_launch.py` 使用 `xfer_format=1`、`frame_id='livox_frame'`，把点云以 `livox_ros_driver2/msg/CustomMsg` 发到 **`/livox/lidar`**。该 launch **没有**做话题重映射，因此不存在 `/livox/custom_msg`；若工作区其他配置仍按该名订阅，要么改用 `/livox/lidar`，要么在 launch 的 `Node(...)` 中加 `remappings=[('/livox/lidar', '/livox/custom_msg')]`。配置含义见 [Livox 官方驱动说明](https://github.com/Livox-SDK/livox_ros_driver2)。2026-11-05 在第二台 G1 上实测确认，见[静止基线采集](debug_log/2026-11-05_g1_pc2_debug_summary.md)。
 - 安装后的 launch 位于 `share/livox_ros_driver2/launch_ROS2/` 子目录，`ros2 launch livox_ros_driver2 msg_MID360_launch.py` 会报找不到文件，需给出绝对路径。
 
 
