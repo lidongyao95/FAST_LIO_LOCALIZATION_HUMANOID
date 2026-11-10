@@ -4,6 +4,7 @@
 - [2026-11-04 Ubuntu 倒装回放与扫描场景导航](2026-11-04_scan_navigation.md)
 - [2026-11-05 第二台 G1 调试汇总](2026-11-05_g1_pc2_debug_summary.md)
 - [2026-11-05 第二台 G1 A 段进展与待验证项](2026-11-05_a_segment_open_items.md)
+- [2026-11-10 PC2 无线、连续定位与网页测试](2026-11-10_pc2_live_nav_web.md)
 - [当前验证状态](../README.md)
 - [PC2 单机与 B300 部署指南](../g1_real_robot_slam_pc2_b300_guide.md)
 

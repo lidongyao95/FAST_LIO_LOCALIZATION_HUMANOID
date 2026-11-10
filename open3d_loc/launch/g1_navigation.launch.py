@@ -27,7 +27,7 @@ PACKAGES={'map_server':('nav2_map_server','map_server'),
           'bt_navigator':('nav2_bt_navigator','bt_navigator')}
 
 
-def rewrite_params(source,use_sim_time,map_yaml):
+def rewrite_params(source,use_sim_time,map_yaml,robot_frame=""):
  """Rewrite every node section so the launch arguments win over the shared file."""
  params=yaml.safe_load(Path(source).read_text())
  for section in params.values():
@@ -37,6 +37,8 @@ def rewrite_params(source,use_sim_time,map_yaml):
    if 'ros__parameters' in entry:entry['ros__parameters']['use_sim_time']=use_sim_time
    stack.extend(value for value in entry.values() if isinstance(value,dict))
  params.setdefault('map_server',{}).setdefault('ros__parameters',{})['yaml_filename']=map_yaml
+ if robot_frame:
+  params['global_costmap']['global_costmap']['ros__parameters']['robot_base_frame']=robot_frame
  handle=tempfile.NamedTemporaryFile('w',prefix='g1_nav_params_',suffix='.yaml',delete=False)
  yaml.safe_dump(params,handle,sort_keys=False)
  handle.close()
@@ -79,7 +81,10 @@ def launch_setup(context):
   actions=[LogInfo(msg='G1 Nav2 plan-only: skipping '+', '.join(forbidden))]
  else:
   actions=[]
- params=rewrite_params(LaunchConfiguration('params_file').perform(context),use_sim_time,map_yaml)
+ robot_frame=LaunchConfiguration('robot_frame').perform(context)
+ if robot_frame and mode!='plan':
+  raise ValueError('robot_frame override is only supported in plan mode')
+ params=rewrite_params(LaunchConfiguration('params_file').perform(context),use_sim_time,map_yaml,robot_frame)
  actions.append(LogInfo(msg=f'G1 Nav2 mode={mode} use_sim_time={use_sim_time} map={map_yaml} params={params}'))
  actions.append(remove_on_shutdown(params))
  for name in nodes:
@@ -109,6 +114,8 @@ def generate_launch_description():
          description='Required in plan mode; full defaults to true'),
      DeclareLaunchArgument('mode',default_value='full',
          description='full for simulation, plan for map_server plus planner_server only'),
+     DeclareLaunchArgument('robot_frame',default_value='',
+         description='Optional global costmap robot frame in plan mode'),
      DeclareLaunchArgument('rviz',default_value='true'),
      OpaqueFunction(function=launch_setup),
  ])

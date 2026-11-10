@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import numpy as np
 import rclpy
 from action_msgs.msg import GoalStatus
 from nav2_msgs.action import ComputePathToPose
@@ -16,7 +17,8 @@ from nav2_msgs.msg import Costmap
 from nav_msgs.msg import OccupancyGrid
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile
+from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
+from sensor_msgs.msg import PointCloud2
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -26,10 +28,13 @@ def yaw(q):
 
 
 class Planner(Node):
-    def __init__(self):
+    def __init__(self, robot_frame='base_footprint'):
         super().__init__('g1_nav_web')
+        self.robot_frame = robot_frame
         self.grid = None
         self.costmap = None
+        self.obstacles = None
+        self.last_obstacles = 0.0
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self)
         self.action = ActionClient(self, ComputePathToPose, '/compute_path_to_pose')
@@ -42,6 +47,48 @@ class Planner(Node):
             Costmap, '/global_costmap/costmap_raw', self.on_costmap,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
         )
+
+        self.create_subscription(
+            PointCloud2, '/cloud_registered_body_1', self.on_obstacles, qos_profile_sensor_data,
+        )
+
+    def on_obstacles(self, msg):
+        now = time.monotonic()
+        if not self.grid or now - self.last_obstacles < 0.5:
+            return
+        try:
+            tf = self.buffer.lookup_transform(
+                self.grid['frame'], msg.header.frame_id, Time.from_msg(msg.header.stamp),
+            ).transform
+        except TransformException:
+            return
+
+        if not msg.width or not msg.height:
+            return
+        fields = {field.name: field for field in msg.fields}
+        if any(name not in fields or fields[name].datatype != 7 for name in ('x', 'y', 'z')):
+            return
+        dtype = '>f4' if msg.is_bigendian else '<f4'
+        points = np.column_stack([
+            np.ndarray((msg.height, msg.width), dtype=dtype, buffer=msg.data,
+                       offset=fields[name].offset, strides=(msg.row_step, msg.point_step)).ravel()
+            for name in ('x', 'y', 'z')
+        ])
+        radius_sq = np.sum(points.astype(float) ** 2, axis=1)
+        points = points[(radius_sq >= 0.4 ** 2) & (radius_sq <= 8.0 ** 2)]
+        q, t = tf.rotation, tf.translation
+        axis = np.array([q.x, q.y, q.z])
+        cross = np.cross(axis, points)
+        points = points + 2 * (q.w * cross + np.cross(axis, cross)) + [t.x, t.y, t.z]
+        xy = points[(points[:, 2] >= 0.15) & (points[:, 2] <= 1.8), :2]
+        _, indices = np.unique(np.floor(xy / 0.1), axis=0, return_index=True)
+        self.obstacles = {'frame': self.grid['frame'], 'points': xy[indices].round(3).tolist()}
+        self.last_obstacles = now
+
+    def live_obstacles(self):
+        if time.monotonic() - self.last_obstacles <= 2:
+            return self.obstacles
+        return None
 
     def on_costmap(self, msg):
         info = msg.metadata
@@ -66,7 +113,7 @@ class Planner(Node):
         if not self.grid:
             return None
         try:
-            tf = self.buffer.lookup_transform(self.grid['frame'], 'base_footprint', Time())
+            tf = self.buffer.lookup_transform(self.grid['frame'], self.robot_frame, Time())
         except TransformException:
             return None
         t, q = tf.transform.translation, tf.transform.rotation
@@ -148,6 +195,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'pose': node.pose(), 'planner': node.action.server_is_ready(),
                                'map': node.grid is not None, 'demo': self.server.demo,
                                'costmap': node.costmap and node.costmap['revision']})
+        if route == '/api/obstacles':
+            return self.reply(node.live_obstacles())
         if route == '/api/costmap':
             return self.reply(node.costmap)
         if route == '/api/map':
@@ -184,9 +233,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=18081)
     parser.add_argument('--demo', nargs='?', const='测试地图', help='Label isolated demo data')
+    parser.add_argument('--robot-frame', default='base_footprint', help='TF frame used for the robot marker')
     args, ros_args = parser.parse_known_args()
     rclpy.init(args=ros_args)
-    node = Planner()
+    node = Planner(args.robot_frame)
     with ThreadingHTTPServer(('127.0.0.1', args.port), Handler) as server:
         server.node = node
         server.demo = args.demo

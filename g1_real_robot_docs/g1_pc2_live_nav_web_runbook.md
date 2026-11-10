@@ -60,15 +60,12 @@ cat alignment.json
 
 ## 4. 发布静止预览 TF
 
-在两个独立 PC2 终端运行，替换尖括号为本次 JSON 输出，角度均为弧度。
-第二条是静止预览用的近似机体位姿，不能作为正式实机外参。
+在独立 PC2 终端运行，替换尖括号为本次 JSON 输出，角度均为弧度。
+只发布地图到局部里程计的初始对齐。FAST-LIO 持续发布 `camera_init → body`，
+网页和仅规划使用合成后的 `map → body`。
 
 ```bash
 ros2 run tf2_ros static_transform_publisher <x> <y> <z> <yaw> <pitch> <roll> map camera_init
-```
-
-```bash
-ros2 run tf2_ros static_transform_publisher <x> <y> 0 <yaw> 0 0 map base_footprint
 ```
 
 在步骤 3 的 Mac 终端用新帧复验：
@@ -78,7 +75,8 @@ ssh unitree@192.168.123.164 "$remote_env; python3 - map" <"$tools/capture.py" >v
 python3 "$tools/verify.py"
 ```
 
-复验失败则停止本轮两个 TF 发布器。FAST-LIO 重启或机器人移动后，重新采集和求解。
+复验失败则停止本轮静态 TF 发布器。同一 FAST-LIO 会话内，网页随里程计更新，无需刷新。
+FAST-LIO 重启或跟踪丢失后，重新采集和求解。此预览未接入持续地图配准，累计误差需要另行验证。
 
 ## 5. 启动仅规划和网页
 
@@ -86,7 +84,7 @@ python3 "$tools/verify.py"
 
 ```bash
 ros2 launch "$REPO/open3d_loc/launch/g1_navigation.launch.py" \
-  "repo:=$REPO" "map_yaml:=$MAP/map.yaml" mode:=plan use_sim_time:=false rviz:=false
+  "repo:=$REPO" "map_yaml:=$MAP/map.yaml" mode:=plan robot_frame:=body use_sim_time:=false rviz:=false
 ```
 
 另开 Mac 终端建立网页隧道：
@@ -98,7 +96,7 @@ ssh -t -o ExitOnForwardFailure=yes -L 127.0.0.1:18085:127.0.0.1:18085 unitree@19
 在该 SSH 会话加载开头的 PC2 环境后运行：
 
 ```bash
-python3 "$REPO/scripts/g1_nav_web/server.py" --port 18085 --demo '实机雷达 · 静止对齐预览'
+python3 "$REPO/scripts/g1_nav_web/server.py" --port 18085 --robot-frame body --demo '实机雷达 · 连续里程计预览'
 ```
 
 ## 6. 验收与结束

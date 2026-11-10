@@ -30,7 +30,7 @@ button:disabled { opacity: .45; cursor: default }
 <main>
 <section>
 <canvas id="map" aria-label="占据栅格地图"></canvas>
-<div class="legend"><span style="color:#5cd7ff">▲ 机器人</span><span style="color:#ffbe69">▲ 目标</span><span style="color:#40e6ae">━ 规划路径</span><span>浅色空闲 · 深色障碍 · 灰色未知</span></div>
+<div class="legend"><span style="color:#5cd7ff">▲ 机器人</span><span style="color:#ffbe69">▲ 目标</span><span style="color:#40e6ae">━ 规划路径</span><span style="color:#b97aff">● 实时雷达障碍点</span><span>浅色空闲 · 深色障碍 · 灰色未知</span></div>
 </section>
 <aside>
 <h2>目标与规划</h2>
@@ -38,6 +38,8 @@ button:disabled { opacity: .45; cursor: default }
 <p>在地图上点选目标。按住并拖动可设定朝向。</p>
 <label><input id="costmap" type="checkbox" checked> 全局代价地图</label>
 <p id="costStatus">等待代价地图</p>
+<label><input id="obstacles" type="checkbox" checked> 实时雷达障碍点</label>
+<p id="obstacleStatus">等待实时雷达点云</p>
 <p id="coordinates">目标尚未选择</p>
 <button id="plan" disabled>仅规划</button>
 <button id="reset" class="secondary" disabled>清除目标与路径</button>
@@ -56,7 +58,13 @@ let grid, raster, target, drag, view;
 let path = [], state = {}, pending = false;
 const costToggle = document.querySelector('#costmap');
 const costStatus = document.querySelector('#costStatus');
-let costs, costRaster;
+const obstacleToggle = document.querySelector('#obstacles');
+const obstacleStatus = document.querySelector('#obstacleStatus');
+let costs, costRaster, obstacles;
+obstacleToggle.onchange = () => {
+  obstacleStatus.textContent = obstacleToggle.checked ? '等待实时雷达点云' : '实时雷达图层已隐藏';
+  draw();
+};
 
 function setCosts(next) {
   costs = next;
@@ -154,6 +162,13 @@ function draw() {
     ctx.drawImage(costRaster, 0, -height, width, height);
     ctx.restore();
   }
+  if (obstacleToggle.checked && obstacles?.frame === grid.frame) {
+    ctx.fillStyle = '#b97aff';
+    for (const point of obstacles.points) {
+      const [x, y] = project(point);
+      ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+    }
+  }
   ctx.strokeStyle = '#26be8a';
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -226,6 +241,12 @@ async function refresh() {
     if (costToggle.checked && state.costmap && costs?.revision !== state.costmap) {
       setCosts(await (await fetch('/api/costmap')).json());
     }
+    if (obstacleToggle.checked) {
+      obstacles = await (await fetch('/api/obstacles')).json();
+      obstacleStatus.textContent = obstacles
+        ? `紫色实时雷达点 · ${obstacles.points.length} 点`
+        : '等待实时雷达点云';
+    }
     costStatus.textContent = state.costmap
       ? (costToggle.checked && costs?.frame !== grid?.frame ? '等待匹配的地图坐标系' : '红色障碍 · 橙色膨胀代价')
       : '等待代价地图';
@@ -237,6 +258,8 @@ async function refresh() {
     ].join(' · ');
   } catch {
     state = {};
+    obstacles = null;
+    if (obstacleToggle.checked) obstacleStatus.textContent = '实时雷达连接中断';
     costStatus.textContent = '代价地图连接中断';
     connection.textContent = 'PC2 连接中断，等待重连';
   }
