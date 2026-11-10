@@ -185,3 +185,21 @@ export LD_LIBRARY_PATH="$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID/.deps/root/usr/
 - **RViz 参数名**：`g1_walking_localization.launch.py` 原来只声明 `show_rviz`，传 `rviz:=false` 既不报错也不生效，于是多起一个 RViz。统一改名为 `rviz` 并默认 `false`，与 `g1_navigation`、`g1_mujoco` 一致。
 
 **地图 z 的更正**：PC2 所用 `clean.pcd` 的地面在 z ≈ −1.1（p50），点云坐标原点在相机高度，因此 Open3D 输出的 `odom2map` z = −0.06 是**正确**的，不存在此前猜测的 1.37 m 垂直漂移；扫描点里地面点占 53.6%，竖直方向本来就有充分约束。出错的是早前的静止对齐把 `z` 取了 +1.305（等于把地面搬到 0），以及网页按绝对 `map` z 做 0.15–1.8 m 过滤——现在改为相对机体的高度带后与地面位置自洽。
+
+### SDK 最小速度探针
+
+为把「SDK 调用方式」与「ROS/Nav2 链路」分开，绕开 ROS 直接驱动运控：`ChannelFactory::Init(0, "eth0")` → `LocoClient::Init()` → 只读 `GetFsmId` → 连续 20 次 `SetVelocity(0.3, 0, 0, 0.2)`（每 100 ms 一次，共 2 秒）→ `StopMove()`。
+
+实测输出：
+
+```text
+fsm_result=0 fsm_id=802 mode=velocity
+i=0 rc=0 ... i=19 rc=0
+StopMove=0
+```
+
+位姿从 `(0.517, 0.024)` 变为 `(0.449, −0.018)`，位移约 **0.08 m**，方向与机头朝向（yaw ≈ −160°）一致。结论：**SDK 速度通路正常，指令被运控接受并执行**。
+
+但 2 秒只走了 8 cm，按 0.3 m/s 应有约 0.6 m，等效速度约 0.04 m/s；这与 Nav2 闭环跑 14 秒只挪 4 cm 是同一量级。因此「机体不动」的原因在物理侧而非软件侧：吊架绷紧、脚掌没有真正承重，机器人只能小幅挪动。下次带动力测试前应放松吊架让脚掌落地，再复跑同一 0.6 m 目标。
+
+探针编译命令与同一份 SDK 链接参数一致（见上文「SDK 会话二进制的构建」），源码放在 PC2 `/tmp/g1-loco-build/g1_velocity_probe.cpp`，属临时产物，重启即失。
