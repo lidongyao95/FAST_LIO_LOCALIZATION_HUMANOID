@@ -61,3 +61,18 @@ PC2 重启后自动接回 `sic-guest`，`wlan0` 仍为 `172.18.17.116/20`。本�
 现场观察到接入 Open3D 后，网页上的点云叠图明显更清晰。FAST-LIO 提供去畸变点云和连续局部位姿。Open3D 把实时点云反复与已知三维地图配准，在通过评分门槛时更新 `map → odom`，可减小移动后累计的平移和航向偏差。网页和全局代价地图使用这条地图坐标链，墙面、门框等结构因此更可能贴合底图，点云叠图中的错位和重影也会减轻。这是现场目视观察与机制解释。原始雷达采样质量和改善幅度尚未用同一批点云做定量对照。
 
 以后在已有三维地图的真机定位、实时网页和导航联调中，默认启用 Open3D 持续配准，并检查初始化、稳态评分及地图 TF 是否更新。纯 FAST-LIO 模式保留给建图、隔离诊断和对照实验。现阶段的单位外参用于功能粗测，正式验收使用实测安装外参与独立参考位姿。
+
+## 晚场复跑补充
+
+沿用静止对齐加仅规划的流程，补充以下判据，均已写入[运行手册](../g1_pc2_live_nav_web_runbook.md)。
+
+| 项目 | 结果 |
+| --- | --- |
+| 无线直连 | `ping 172.18.17.116` 13 ms；`ssh unitree@ubuntu.local` 可解析并登录，mDNS 同时返回 `192.168.123.164` 与 `172.18.17.116`。 |
+| 新地址主机键 | 无线地址首次登录报 `Host key verification failed`。`ssh-keyscan -t ed25519 172.18.17.116` 与有线那条公钥逐字节相同，确认同一台机器后再登记。 |
+| 隧道端口与 Host 白名单 | 把本地端映射成 18086 时 `/` 和 `/api/state` 均 403 `Invalid host`；同一隧道加 `Host: 127.0.0.1:18085` 后返回完整状态，说明是服务端白名单只认 `127.0.0.1:18085` 和 `localhost:18085`，与网络无关。 |
+| ROS CLI 假阴性 | `ros2 topic list` 一度只列出 `/parameter_events`、`/rosout`，`ros2 topic hz` 对 `/livox/lidar`、`/livox/imu`、`/Odometry` 全无输出，同 shell 的 `probe_topics.py` 却是 10.00 Hz 与 200.03 Hz。CLI 守护进程缓存和 QoS 不匹配都会造成假阴性，核对以 probe 脚本为准。 |
+| 启动顺序错误 | 静态 TF 未发布时先起 Nav2，`global_costmap` 停在激活阶段，`ensure_g1_nav_lifecycle.py` 超时后整个 launch 以 `G1 Nav2 lifecycle startup failed (exit 1)` 退出，日志末尾向 `map_server`、`planner_server` 发 `SIGINT`。`map → camera_init` 生效后重启即出现 `All G1 Nav2 lifecycle nodes active`。 |
+| 网页缓存 | 页面在数据就绪前打开会一直不显示雷达点，硬刷新后恢复。同一时间 `/api/obstacles` 连续两次返回 404、411 点，范围 x −5.8…7.4 m、y −7.5…7.2 m，判据指向浏览器侧。 |
+| 本轮对齐数值 | 拟合结果 x −0.3896、y 0.3495、z 1.3054、yaw 2.2481、pitch −0.0520、roll 0.0151；最优候选 0.943、次优 0.607，20 cm 重叠 0.942，内点 RMS 4.8 cm；换 `map` 系复验 97.0%、3.4 cm。与上文同点复测量级一致。 |
+| 仅规划闭环 | `POST /api/plan` 对 (1.0, 1.0) m 返回路径；`/api/state` 的 `pose`、`planner`、`map`、`costmap` 均有效，`costmap` 版本随轮询变化。 |
