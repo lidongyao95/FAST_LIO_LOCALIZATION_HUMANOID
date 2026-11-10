@@ -48,6 +48,11 @@ Ubuntu 本地回放与实时查看见 [部署指南附录 A.1](g1_real_robot_sla
 
 仿真曾因缺少 `camera_init → body` TF 导致 Nav2 无法标记新障碍。故障、仿真修复及验证边界见[临时障碍与代价地图排查](debug_log/2026-11-10_mujoco_runtime_obstacles.md)。离线通过后仍须以现场结果关闭本待办。
 
+## PC2 实机逐步运行
+
+- [静止自动对齐与网页仅规划](g1_pc2_live_nav_web_runbook.md)
+- [2026-11-10 实时雷达叠图调试记录](debug_log/2026-11-10_pc2_live_nav_web.md)
+
 ## Ubuntu 离线回放与扫描场景仿真
 
 - [倒装输入补偿与离线回放](inverted_mid360.md)

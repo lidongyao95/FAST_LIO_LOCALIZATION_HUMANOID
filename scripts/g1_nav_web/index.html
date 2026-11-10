@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC2 · G1 导航规划</title>
+<style>
+* { box-sizing: border-box }
+body { margin: 0; background: #111922; color: #eff5fa; font: 15px system-ui,sans-serif }
+header, main { max-width: 1200px; margin: auto; padding: 20px }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px }
+h1 { font-size: 24px; margin: 0 }
+.badge { background: #1d353c; color: #89f3dc; padding: 8px 14px; border-radius: 20px }
+main { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 18px; padding-top: 0 }
+section, aside { background: #192530; border: 1px solid #344452; border-radius: 12px; padding: 16px }
+canvas { display: block; width: 100%; height: clamp(320px,68vh,760px); background: #0e151d; border-radius: 6px; cursor: crosshair; touch-action: none }
+h2 { font-size: 16px; margin-top: 0 }
+p { line-height: 1.6; color: #c0d0dc }
+output { display: block; min-height: 48px; margin-top: 12px; color: #a7e7ff; overflow-wrap: anywhere }
+button { width: 100%; margin-top: 10px; border: 0; border-radius: 6px; min-height: 56px; padding: 14px 16px; font-size: 17px; background: #91eadb; color: #092723; font-weight: bold; cursor: pointer }
+#plan { min-height: 68px; font-size: 21px }
+button:disabled { opacity: .45; cursor: default }
+.secondary { background: #344858; color: white }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px }
+@media(max-width: 720px) { main { grid-template-columns: 1fr } }
+</style>
+</head>
+<body>
+<header><h1>PC2 · G1 导航规划</h1><span id="mode" class="badge">仅规划</span></header>
+<main>
+<section>
+<canvas id="map" aria-label="占据栅格地图"></canvas>
+<div class="legend"><span style="color:#5cd7ff">▲ 机器人</span><span style="color:#ffbe69">▲ 目标</span><span style="color:#40e6ae">━ 规划路径</span><span>浅色空闲 · 深色障碍 · 灰色未知</span></div>
+</section>
+<aside>
+<h2>目标与规划</h2>
+<p id="connection">正在连接 PC2…</p>
+<p>在地图上点选目标。按住并拖动可设定朝向。</p>
+<label><input id="costmap" type="checkbox" checked> 全局代价地图</label>
+<p id="costStatus">等待代价地图</p>
+<p id="coordinates">目标尚未选择</p>
+<button id="plan" disabled>仅规划</button>
+<button id="reset" class="secondary" disabled>清除目标与路径</button>
+<output id="result" aria-live="polite"></output>
+</aside>
+</main>
+<script>
+const canvas = document.querySelector('#map');
+const ctx = canvas.getContext('2d');
+const connection = document.querySelector('#connection');
+const coordinates = document.querySelector('#coordinates');
+const result = document.querySelector('#result');
+const button = document.querySelector('#plan');
+const reset = document.querySelector('#reset');
+let grid, raster, target, drag, view;
+let path = [], state = {}, pending = false;
+const costToggle = document.querySelector('#costmap');
+const costStatus = document.querySelector('#costStatus');
+let costs, costRaster;
+
+function setCosts(next) {
+  costs = next;
+  costRaster = document.createElement('canvas');
+  costRaster.width = next.width;
+  costRaster.height = next.height;
+  const pixels = costRaster.getContext('2d');
+  const image = pixels.createImageData(next.width, next.height);
+  next.data.forEach((value, i) => {
+    if (value === 0 || value === 255) return;
+    const row = Math.floor(i / next.width);
+    const offset = ((next.height - row - 1) * next.width + i % next.width) * 4;
+    const color = value >= 253 ? [235, 55, 73, 195] : [255, 145, 45, 25 + Math.round(value / 2)];
+    image.data.set(color, offset);
+  });
+  pixels.putImageData(image, 0, 0);
+}
+
+costToggle.onchange = draw;
+
+function setGrid(next) {
+  grid = next;
+  raster = document.createElement('canvas');
+  raster.width = grid.width;
+  raster.height = grid.height;
+  const pixels = raster.getContext('2d');
+  const image = pixels.createImageData(grid.width, grid.height);
+  grid.data.forEach((value, i) => {
+    const col = i % grid.width, row = Math.floor(i / grid.width);
+    const offset = ((grid.height - row - 1) * grid.width + col) * 4;
+    const tone = value < 0 ? 104 : 226 - Math.round(value * 1.9);
+    image.data.set([tone, tone, tone, 255], offset);
+  });
+  pixels.putImageData(image, 0, 0);
+}
+
+function project([x, y]) {
+  const dx = x - grid.x, dy = y - grid.y;
+  const c = Math.cos(grid.yaw), s = Math.sin(grid.yaw);
+  return [view.left + (c * dx + s * dy) * view.scale,
+          view.bottom - (-s * dx + c * dy) * view.scale];
+}
+
+function world(event) {
+  const rect = canvas.getBoundingClientRect();
+  const u = (event.clientX - rect.left - view.left) / view.scale;
+  const v = (view.bottom - event.clientY + rect.top) / view.scale;
+  const c = Math.cos(grid.yaw), s = Math.sin(grid.yaw);
+  return [grid.x + c * u - s * v, grid.y + s * u + c * v];
+}
+
+function arrow(pose, color) {
+  const [x, y] = project(pose);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(grid.yaw - pose[2]);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = '#10202b';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(13, 0);
+  ctx.lineTo(-8, -7);
+  ctx.lineTo(-5, 0);
+  ctx.lineTo(-8, 7);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function draw() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  ctx.scale(dpr, dpr);
+  if (!grid) {
+    ctx.fillStyle = '#c0d0dc';
+    ctx.font = '16px system-ui';
+    ctx.fillText('等待 PC2 发布地图', 20, 35);
+    return;
+  }
+  const mapW = grid.width * grid.resolution, mapH = grid.height * grid.resolution;
+  const scale = Math.min((w - 20) / mapW, (h - 20) / mapH);
+  view = {scale, left: (w - mapW * scale) / 2, bottom: (h + mapH * scale) / 2};
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(raster, view.left, view.bottom - mapH * scale, mapW * scale, mapH * scale);
+  if (costToggle.checked && state.costmap && costs?.frame === grid.frame) {
+    const [x, y] = project([costs.x, costs.y]);
+    const width = costs.width * costs.resolution * scale;
+    const height = costs.height * costs.resolution * scale;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(grid.yaw - costs.yaw);
+    ctx.drawImage(costRaster, 0, -height, width, height);
+    ctx.restore();
+  }
+  ctx.strokeStyle = '#26be8a';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  path.forEach((p, i) => i ? ctx.lineTo(...project(p)) : ctx.moveTo(...project(p)));
+  ctx.stroke();
+  if (state.pose) arrow(state.pose, '#5cd7ff');
+  if (target) arrow(target, '#ffbe69');
+}
+
+function update() {
+  coordinates.textContent = target
+    ? `X ${target[0].toFixed(2)} m · Y ${target[1].toFixed(2)} m · ${Math.round(target[2] * 180 / Math.PI)}°`
+    : '目标尚未选择';
+  button.disabled = !target || !state.pose || !state.planner || pending;
+  reset.disabled = !target || pending;
+  draw();
+}
+
+canvas.onpointerdown = event => {
+  if (!grid || pending || event.button !== 0) return;
+  const xy = world(event);
+  const [px, py] = project(xy);
+  if (px < view.left || px >= view.left + grid.width * grid.resolution * view.scale ||
+      py <= view.bottom - grid.height * grid.resolution * view.scale || py > view.bottom) return;
+  canvas.setPointerCapture(event.pointerId);
+  target = [...xy, state.pose?.[2] ?? 0];
+  drag = event.pointerId;
+  path = [];
+  result.textContent = '';
+  update();
+};
+canvas.onpointermove = event => {
+  if (drag !== event.pointerId) return;
+  const [x, y] = world(event);
+  if (Math.hypot(x - target[0], y - target[1]) * view.scale < 5) return;
+  target[2] = Math.atan2(y - target[1], x - target[0]);
+  update();
+};
+canvas.onlostpointercapture = () => { drag = undefined; };
+reset.onclick = () => { target = null; path = []; result.textContent = ''; update(); };
+button.onclick = async () => {
+  pending = true;
+  path = [];
+  result.textContent = '正在等待 PC2 规划…';
+  update();
+  const [x, y, yaw] = target;
+  try {
+    const response = await fetch('/api/plan', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({x, y, yaw}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error);
+    path = data.path;
+    const length = path.slice(1).reduce((sum, p, i) =>
+      sum + Math.hypot(p[0] - path[i][0], p[1] - path[i][1]), 0);
+    result.textContent = `规划成功 · ${length.toFixed(2)} m · ${path.length} 个路径点`;
+  } catch (error) {
+    result.textContent = `规划失败 · ${error.message}`;
+  } finally {
+    pending = false;
+    update();
+  }
+};
+
+async function refresh() {
+  try {
+    state = await (await fetch('/api/state')).json();
+    if (!grid && state.map) setGrid(await (await fetch('/api/map')).json());
+    if (costToggle.checked && state.costmap && costs?.revision !== state.costmap) {
+      setCosts(await (await fetch('/api/costmap')).json());
+    }
+    costStatus.textContent = state.costmap
+      ? (costToggle.checked && costs?.frame !== grid?.frame ? '等待匹配的地图坐标系' : '红色障碍 · 橙色膨胀代价')
+      : '等待代价地图';
+    document.querySelector('#mode').textContent = state.demo ? state.demo + ' · 仅规划' : '仅规划';
+    connection.textContent = [
+      'PC2 已连接', state.map ? '地图就绪' : '等待地图',
+      state.pose ? '定位 TF 可用' : '等待定位 TF',
+      state.planner ? '规划器在线' : '等待规划器',
+    ].join(' · ');
+  } catch {
+    state = {};
+    costStatus.textContent = '代价地图连接中断';
+    connection.textContent = 'PC2 连接中断，等待重连';
+  }
+  update();
+  setTimeout(refresh, 1000);
+}
+window.addEventListener('resize', draw);
+refresh();
+</script>
+</body>
+</html>
