@@ -108,3 +108,7 @@ Mac 可查询 `/api/state` 的 `costmap` 版本是否变化。结束时在各启
 
 正式外参、连续定位、实机走行、停止和接管的验收见[实机部署指南](g1_real_robot_slam_pc2_b300_guide.md)。
 本手册截至静止对齐和仅规划。当天数据见[调试记录](debug_log/2026-11-10_pc2_live_nav_web.md)。
+
+## 已知地图下的连续定位
+
+已有三维地图时，真机定位、实时网页和导航联调默认使用 Open3D 持续配准。前述静止对齐用于给当前 FAST-LIO 会话提供初值。Open3D 初始化并进入稳态后，由它发布 `map → odom`，通过 `odom → camera_init → body` 给网页和仅规划提供地图位姿。切换时停掉旧的 `map → camera_init` 静态发布器。正式验收采用实测安装外参与独立参考位姿。纯 FAST-LIO 用于建图、隔离诊断和对照实验。见[本轮分析](debug_log/2026-11-10_pc2_live_nav_web.md#重启复测与-open3d-使用约定)。
