@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""G1 velocity bridge with dry-run output by default."""
+"""G1 velocity bridge with dry-run output by default.
+
+SDK session I/O runs on a worker thread. Blocking on the session from the timer
+callback starved this node's own subscriptions, which then reported stale scan
+and odometry even though both inputs were healthy.
+"""
 
 import math
 import select
 import subprocess
+import threading
 import time
 
 import rclpy
@@ -21,6 +27,8 @@ class VelocityBridge(Node):
     LIMITS = (0.30, 0.0, 0.25)
     ACCEL = (0.30, 0.0, 0.50)
     TIMEOUT = 0.30
+    ACK_TIMEOUT = 0.22
+    FIRST_ACK_TIMEOUT = 1.0
     ZERO = (0.0, 0.0, 0.0)
 
     def __init__(self):
@@ -48,7 +56,8 @@ class VelocityBridge(Node):
         if self.preflight_frame:
             self.tf_buffer = Buffer()
             self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.create_subscription(Bool, '~/control_ok', self.control, 1)
+        self.declare_parameter('control_permission_topic', '')
+        permit = self.get_parameter('control_permission_topic').value
         self.create_service(SetBool, '~/enable', self.enable)
         self.declare_parameter('zero_session_executable', '')
         self.declare_parameter('robot_interface', '')
@@ -61,14 +70,93 @@ class VelocityBridge(Node):
             raise ValueError('Set both zero_session_executable and robot_interface')
         if self.hardware_output and not self.zero_executable:
             raise ValueError('Hardware output requires the SDK executable and interface')
+        if self.hardware_output and (
+            not self.preflight_frame or 'registration' not in self.health or
+            not permit.startswith('/') or
+            permit == self.get_namespace().rstrip('/') + '/' + self.get_name() + '/control_ok'
+        ):
+            raise ValueError('Hardware output requires localization preflight and a separate control permission topic')
+        self.create_subscription(Bool, permit if self.hardware_output else '~/control_ok',
+                                 self.control, 1)
         if self.zero_executable:
             self.create_service(Trigger, '~/request_sdk_zero', self.request_sdk_zero)
+        self.io_lock = threading.Lock()
+        self.pending_command = None
+        self.pending_stop = False
+        self.io_error = None
+        self.first_exchange = False
+        self.stop_ok = True
+        self.stop_done = threading.Event()
+        self.worker = threading.Thread(target=self.io_loop, daemon=True)
+        self.worker.start()
         self.create_timer(0.05, self.tick)
+
+    def io_loop(self):
+        while rclpy.ok():
+            with self.io_lock:
+                session = self.session
+                stop_requested = self.pending_stop
+                command = self.pending_command
+                self.pending_command = None
+            if session is None:
+                time.sleep(0.01)
+                continue
+            if stop_requested:
+                self.stop_ok = False
+                try:
+                    self.stop_ok = self.exchange('stop', self.ACK_TIMEOUT) == b'stop_result=0'
+                except (OSError, TimeoutError):
+                    pass
+                self.close_session()
+                with self.io_lock:
+                    self.pending_stop = False
+                self.stop_done.set()
+                continue
+            if command is None:
+                time.sleep(0.005)
+                continue
+            timeout = self.FIRST_ACK_TIMEOUT if self.first_exchange else self.ACK_TIMEOUT
+            try:
+                result = self.exchange(command, timeout)
+            except (OSError, TimeoutError):
+                self.io_error = 'SDK velocity unconfirmed'
+                self.close_session()
+                continue
+            self.first_exchange = False
+            if result != b'send_result=0':
+                self.io_error = ('robot control revoked' if result == b'control_revoked'
+                                 else 'SDK velocity rejected')
+                self.close_session()
+
+    def close_session(self):
+        with self.io_lock:
+            session, self.session = self.session, None
+        if session is None:
+            return
+        for stream in (session.stdin, session.stdout):
+            try:
+                stream.close()
+            except OSError:
+                pass
+        try:
+            session.wait(timeout=0.25)
+        except subprocess.TimeoutExpired:
+            session.kill()
+            session.wait()
+
+    def exchange(self, command, timeout):
+        self.session.stdin.write((command + '\n').encode('ascii'))
+        if not select.select([self.session.stdout], [], [], timeout)[0]:
+            raise TimeoutError('SDK session acknowledgement timed out')
+        return self.session.stdout.read(256).strip()
 
     def request_sdk_zero(self, request, response):
         if self.session is not None:
             response.success = self.stop('SDK zero requested')
             response.message = 'stop_result=0' if response.success else 'SDK stop unconfirmed'
+            return response
+        if self.hardware_output:
+            response.message = 'No active SDK velocity session'
             return response
         self.stop('SDK zero requested')
         try:
@@ -112,8 +200,13 @@ class VelocityBridge(Node):
                 self.stop(name + ' unhealthy')
 
     def stale_health(self, now):
-        return [name for name, stamp in self.health.items()
-                if stamp is None or now - stamp >= (2.0 if name == 'registration' else self.TIMEOUT)]
+        stale = []
+        for name, stamp in self.health.items():
+            if name == 'control' and not self.hardware_output:
+                continue
+            if stamp is None or now - stamp >= (2.0 if name == 'registration' else self.TIMEOUT):
+                stale.append(name)
+        return stale
 
     def preflight_issues(self):
         if not self.preflight_frame:
@@ -125,6 +218,10 @@ class VelocityBridge(Node):
                 issues.append('map TF stale')
         except TransformException:
             issues.append('map TF missing')
+        if self.hardware_output:
+            permit = self.get_parameter('control_permission_topic').value
+            if self.count_publishers(permit) != 1:
+                issues.append('control permission requires exactly one publisher')
         publishers = self.count_publishers('/global_costmap/costmap_raw')
         if publishers != 1:
             issues.append(f'global costmap publishers={publishers}, expected 1')
@@ -141,30 +238,21 @@ class VelocityBridge(Node):
         self.target = self.output = self.ZERO
         if rclpy.ok():
             self.publish(reason)
-        if self.session is None:
+        with self.io_lock:
+            pending = self.session is not None
+            self.pending_command = None
+            self.pending_stop = pending
+        if not pending:
             return True
-        try:
-            stopped = self.exchange('stop') == b'stop_result=0'
-        except (OSError, TimeoutError):
-            stopped = False
-        finally:
-            session, self.session = self.session, None
-            session.stdin.close()
-            session.stdout.close()
-            try:
-                session.wait(timeout=0.25)
-            except subprocess.TimeoutExpired:
-                session.kill()
-                session.wait()
-        if not stopped and rclpy.ok():
+        self.stop_done.clear()
+        if not self.stop_done.wait(0.8):
+            self.close_session()
+            if rclpy.ok():
+                self.get_logger().error('SDK stop unconfirmed: ' + reason)
+            return False
+        if not self.stop_ok and rclpy.ok():
             self.get_logger().error('SDK stop unconfirmed: ' + reason)
-        return stopped
-
-    def exchange(self, command):
-        self.session.stdin.write((command + '\n').encode('ascii'))
-        if not select.select([self.session.stdout], [], [], 0.22)[0]:
-            raise TimeoutError('SDK session acknowledgement timed out')
-        return self.session.stdout.read(256).strip()
+        return self.stop_ok
 
     def enable(self, request, response):
         now = time.monotonic()
@@ -185,13 +273,17 @@ class VelocityBridge(Node):
             self.command_time = self.last_tick = now
             if self.hardware_output:
                 try:
-                    self.session = subprocess.Popen(
+                    session = subprocess.Popen(
                         [self.zero_executable, '--velocity-session', self.robot_interface],
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0,
                     )
                 except OSError as error:
                     response.message = str(error)
                     return response
+                with self.io_lock:
+                    self.session = session
+                self.first_exchange = True
+                self.io_error = None
             self.enabled = True
         response.success = stopped if not request.data else True
         response.message = (
@@ -239,16 +331,12 @@ class VelocityBridge(Node):
         self.output = tuple(current + max(-rate * dt, min(rate * dt, target - current))
                             for current, target, rate in zip(self.output, self.target, self.ACCEL))
         if self.session is not None:
-            try:
-                command = 'velocity {:.6f} {:.6f} {:.6f}'.format(*self.output)
-                result = self.exchange(command)
-                if result != b'send_result=0':
-                    reason = 'robot control revoked' if result == b'control_revoked' else 'SDK velocity rejected'
-                    self.stop(reason)
-                    return
-            except (OSError, TimeoutError):
-                self.stop('SDK velocity unconfirmed')
-                return
+            with self.io_lock:
+                self.pending_command = 'velocity {:.6f} {:.6f} {:.6f}'.format(*self.output)
+        if self.io_error:
+            reason, self.io_error = self.io_error, None
+            self.stop(reason)
+            return
         self.publish('enabled for hardware' if self.hardware_output else 'enabled for dry run')
 
     def publish(self, reason):

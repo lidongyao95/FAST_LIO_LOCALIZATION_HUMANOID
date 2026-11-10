@@ -66,3 +66,8 @@ else
 fi
 cd "$G1_REPO"
 mkdir -p "$ROS_LOG_DIR"
+
+# Opt-in cleanup of processes left by earlier sessions in this ROS_DOMAIN_ID.
+if [[ "${G1_CLEAN_STALE:-0}" == "1" ]]; then
+    "$G1_REPO/scripts/g1_cleanup_stale.sh"
+fi

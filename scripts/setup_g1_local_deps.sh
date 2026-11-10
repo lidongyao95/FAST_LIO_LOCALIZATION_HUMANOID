@@ -142,6 +142,8 @@ if ! open3d_runtime_ok; then
         ldd "$OPEN3D_LIB" | grep 'not found' >&2
     exit 1
 fi
+echo "Export this before launching Open3D nodes; the libraries live only in the local prefix:"
+echo "  export LD_LIBRARY_PATH=\"$DEPS/root/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH\""
 else
     echo "[3/4] Skip Open3D C++ library on ${ARCH}: no packaged 0.14 build; open3d_loc is not built here"
 fi

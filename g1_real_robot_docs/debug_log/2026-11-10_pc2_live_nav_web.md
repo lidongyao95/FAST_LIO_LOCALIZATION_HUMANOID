@@ -76,3 +76,112 @@ PC2 重启后自动接回 `sic-guest`，`wlan0` 仍为 `172.18.17.116/20`。本�
 | 网页缓存 | 页面在数据就绪前打开会一直不显示雷达点，硬刷新后恢复。同一时间 `/api/obstacles` 连续两次返回 404、411 点，范围 x −5.8…7.4 m、y −7.5…7.2 m，判据指向浏览器侧。 |
 | 本轮对齐数值 | 拟合结果 x −0.3896、y 0.3495、z 1.3054、yaw 2.2481、pitch −0.0520、roll 0.0151；最优候选 0.943、次优 0.607，20 cm 重叠 0.942，内点 RMS 4.8 cm；换 `map` 系复验 97.0%、3.4 cm。与上文同点复测量级一致。 |
 | 仅规划闭环 | `POST /api/plan` 对 (1.0, 1.0) m 返回路径；`/api/state` 的 `pose`、`planner`、`map`、`costmap` 均有效，`costmap` 版本随轮询变化。 |
+
+### SDK 会话二进制的构建
+
+准备带动力测试时在 PC2 找不到 `g1_loco_zero_session`：在 `/home`、`/tmp`、`/opt`、`/usr/local/bin` 下只有仓库里的四个源码文件，没有任何可执行产物。上一轮的产物没有留在仓库或固定目录，记录中提到的 `/tmp/g1-three-end.*`、`/tmp/g1-dry-nav.*` 都已不存在（只剩 `/tmp/g1-static-lio.*`），所以无法复用。`~/unitree_sdk2/build/bin/g1_loco_client` 是官方示例，交互协议与桥要求的 stdin `velocity`/`stop` 行协议不同，不能顶替。
+
+仓库没有构建入口，只能单独编译。要链接 unitree SDK 自带的 DDS，不能链 `-L/usr/local/lib`：那样运行时会撞上 ROS Foxy 自带的 CycloneDDS 0.7.0，报 `undefined symbol: ddsi_sertype_v0`（该符号从 0.10 才有）。用 SDK 仓库的 `thirdparty` 并把 rpath 指向它：
+
+```bash
+R=$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID
+S=$HOME/unitree_sdk2
+mkdir -p /tmp/g1-loco-build
+g++ -O2 -std=c++17 -I$R/scripts -I$S/include -I$S/thirdparty/include/ddscxx \
+  -o /tmp/g1-loco-build/g1_loco_zero_session $R/scripts/g1_loco_zero_session.cpp \
+  -L$S/lib/aarch64 -lunitree_sdk2 \
+  -L$S/thirdparty/lib/aarch64 -lddscxx -lddsc -lpthread \
+  -Wl,-rpath,$S/thirdparty/lib/aarch64
+g++ -O2 -std=c++17 -I$S/include -I$S/thirdparty/include/ddscxx \
+  -o /tmp/g1-loco-build/g1_loco_preflight $R/scripts/g1_loco_preflight.cpp \
+  -L$S/lib/aarch64 -lunitree_sdk2 \
+  -L$S/thirdparty/lib/aarch64 -lddscxx -lddsc -lpthread \
+  -Wl,-rpath,$S/thirdparty/lib/aarch64
+```
+
+即使这样编译，**由速度桥拉起**的会话仍会加载错库：桥进程继承了 ROS 的 `LD_LIBRARY_PATH`，其中的 `libddsc.so.0` 优先生效。用一个只设库路径的包装脚本作为 `zero_session_executable` 可以绕开：
+
+```bash
+printf '#!/bin/sh\nexec env LD_LIBRARY_PATH=%s/thirdparty/lib/aarch64 /tmp/g1-loco-build/g1_loco_zero_session "$@"\n' "$S" > /tmp/g1-loco-build/g1_loco_session.sh
+chmod +x /tmp/g1-loco-build/g1_loco_session.sh
+```
+
+`/tmp` 下的产物重启即失，正式验收前应改放到仓库外的固定目录并记录 SHA-256。`scripts/g1_loco_sender_session.hpp` 仓库里已有，但 PC2 侧内容较新，改动后记得反向同步回 Mac。
+
+只读预检 `g1_loco_preflight eth0` 返回 `fsm_id_result=0 fsm_id=0 fsm_mode_result=0 fsm_mode=0`。查询成功但 `fsm_id` 不是 802，速度会话会立刻回 `control_revoked` 并拒绝发速，这一条可用于开跑前的模式核对。
+
+### Open3D 行走入口的实机化修复
+
+带动力测试要接 Open3D，才发现 [g1_walking_localization.launch.py](../../open3d_loc/launch/g1_walking_localization.launch.py) 只能跑 MuJoCo：内部无条件 include FAST-LIO（`g1_walking.yaml`、`use_sim_time:=true`），Open3D 节点、rviz、`g1_nav_tf.py` 三处时钟写死为仿真，`publish_motion_tf` 固定 false 因而不发布 `map → odom`；四条安装 TF 用 `--frame-id/--child-frame-id` 写法，Foxy 的 `static_transform_publisher` 直接以 `exited due to not having the right number of arguments` 退出（`odom → camera_init` 缺失，`global_localization_node` 随后因 `imu_link` 不存在而启动失败）。
+
+改动集中在同一个 launch，默认值保持仿真行为：
+
+- 新增 `use_sim_time`（默认 `true`）、`start_lio`（默认 `true`）、`lio_config_file`（默认 `g1_walking.yaml`）、`publish_motion_tf`（默认 `false`），并透传到 FAST-LIO 子 launch、Open3D 节点、rviz 和 `g1_nav_tf.py`。
+- 四条安装 TF 改为位置式参数。Humble 会打印旧式参数弃用警告，Foxy 正常。
+
+实机调用方式：`start_lio:=false use_sim_time:=false publish_motion_tf:=true map_ply:=<clean.pcd>`，再给实测 `initialpose`（x、y、z 为米，roll、pitch、yaw 为度）。
+
+| 主机 | 结果 |
+| --- | --- |
+| PC2/G1 · Foxy · 域 223 | 停掉旧 `map → camera_init` 后按上述参数启动。首次配准 fitness 0.754 与 0.766，`/localization_3d_registration_ok` 采样 20/20 为 true，`map → odom` 持续更新（约 −0.36, 0.32, yaw 2.25），`odom → camera_init` 为单元变换，`map → body` 合成正确，网页位姿与代价地图版本恢复更新，仅规划仍在线。 |
+| 4322/Humble | 四个新参数解析正确，Open3D 节点、四条静态 TF、`g1_nav_tf` 均启动，`odom → camera_init` 可查询。首轮缺 Open3D 运行时库，补齐搜索路径后节点可正常初始化，见下文。 |
+| 三端一致性 | Mac、PC2、4322 上该文件 SHA-256 均为 `6ae8e72d5874b872353eb49258fa22699bd987ba77f33b0b4be75b9499780345`。 |
+
+启动后现场读数为：FAST-LIO 局部里程计 (−0.765, −0.488) m、航向相对对齐时刻转过约 76°，与对齐时的原点不同；Open3D 在该偏差下仍稳定通过配准门槛，`map → body` 合成为 (0.48, 0.02) m。机体若实际未移动，这一偏差需要单独归因后再放行动力测试。
+
+### 4322 上 Open3D 运行时库
+
+在 4322/Humble 上启动 `global_localization_node` 时先报 `liblapacke.so.3: cannot open shared object file`，补 `anaconda3/envs/twin/lib` 后接着报 `liblzf.so.1`，看起来像系统缺包。
+
+实际不是缺包，而是缺库搜索路径。4322 的 Open3D 不走系统安装，`build/open3d_loc/CMakeCache.txt` 里 `Open3D_DIR` 指向仓库内的本地前缀 `.deps/root/usr/lib/x86_64-linux-gnu/cmake/Open3D`；`scripts/setup_g1_local_deps.sh` 已经用 `apt-get download` + `dpkg-deb -x`（无需 root）把 `libopen3d0.14`、`libfilament1.9`、`liblapacke`、`liblzf1`、`libstb0`、`libtinyobjloader1`、`libtmglib3` 解包到同一目录，`.deps/debs` 下还留着这些 deb 缓存。缺的只是运行时把这个目录放进 `LD_LIBRARY_PATH`。
+
+判据：`LD_LIBRARY_PATH=.deps/root/usr/lib/x86_64-linux-gnu ldd install/open3d_loc/lib/open3d_loc/global_localization_node | grep -c "not found"` 返回 0。
+
+按此路径启动后，节点在域 189 正常初始化、加载 `hang_A_02.pcd` 并停在 `Waiting for Odometry_loc...`，与「无 LIO 输入」的预期一致。结论是 4322 不需要 sudo 安装任何系统包，只需要在启动前导出：
+
+```bash
+export LD_LIBRARY_PATH="$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID/.deps/root/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
+```
+
+这条提示已加进 `scripts/setup_g1_local_deps.sh` 的输出，避免下次又从 `liblapacke`、`liblzf` 逐个试。
+
+### 首次带动力指令的结果
+
+现场条件满足后（`fsm_id=802`）发了机头前方 0.3 m 的目标，链路走到「指令被机器人接受」，但机体未移动。
+
+- 门禁：硬件模式要求 `control_permission_topic` 是独立的绝对话题，用 `/g1/hw_control_permission`；PC2 部署版第 68 行的 `Node.get_fully_qualified_name` 在 Foxy 不存在，会抛 `AttributeError`，改成 `get_namespace()` + `get_name()` 后通过。
+- 使能：首轮返回「waiting for 2 seconds of continuous valid localization and graph」，第 2 次返回 `enabled for hardware`。
+- 执行：桥输出 64 个样本、峰值 0.267 m/s。该峰值是 DWB 0.25 m/s² 与桥 0.3 m/s² 共同限幅的结果，0.3 m 行程内到不了 0.3 m/s。
+- 未移动：`map → body` 全程只在 ±1.5 cm 噪声内抖动，最终位移 0.027 m；Nav2 因 15 秒内未完成 0.15 m 进度返回 `ABORTED`。SDK 对每条速度都回 `send_result=0`，说明是机体侧未执行，而非链路拒收。
+- 中途停止：约 5 秒时桥报 `map TF stale` 自行停止。实测 `map → odom` 约 9 Hz，966 个采样中 12 个年龄超过 0.3 秒门限（最大 0.423 秒）。
+- 收尾：`disable` 成功，`request_sdk_zero` 返回「无活动会话」，机体静止。
+
+待确认：机体在该运控状态下是否需要额外的速度控制确认；以及把 Open3D 的 `loc_frequence` 提高或放宽桥的 0.3 秒陈旧门限，二者选一。
+
+### 0.6 m 复测与真正的阻塞点
+
+把目标从 0.3 m 改成前方 0.6 m（目标 (−0.073, −0.221)，起点 (0.483, 0.005)），结果与 0.3 m 相同：`candidate_velocity` 全程 0.300 m/s，桥输出只有 0 或 1 个样本，Nav2 仍以 `ABORTED` 结束。**距离不是原因**，问题在速度输出的持续性。
+
+这一轮又暴露四个具体问题：
+
+1. **桥的同步 I/O 会饿死自己的订阅。** 桥在 20 Hz 定时器回调里做一次 SDK 往返（`select` 等 220 ms），阻塞期间 scan、odometry、control 的回调都得不到执行，健康时间戳自然过期，于是报 `scan, odometry, map TF stale` 自停。实测 `/Odometry_loc` 与 `/cloud_registered_1` 本身都是 10 Hz 正常。
+2. **spawn 后的第一次交换经常超时。** 新建的 DDS 参与者在首次 `GetFsmId` + `SetVelocity` 上耗时超过 220 ms，桥直接判 `SDK velocity unconfirmed` 并退出使能。重试使能偶尔能成功一次，但随即被第 1 条打断。
+3. **`loc_frequence` 的语义是周期（秒）。** 改成 0.2 后 `map → odom` 从 2 Hz 提到 10 Hz（8 秒 80 次），最大年龄 0.301 秒，仍会偶尔踩到 0.3 秒门限。该参数已提升为 launch 参数，默认仍是 0.5。
+4. **`initialpose` 是 `map → odom`，不是 `map → body`。** 代码里 `mat_odom2map_ = mat_initialpose_`。这一轮先用 `map → body` 当初值，配准 fitness 从 0.75 掉到 0.41、低于门槛；换回静止对齐的六个量后恢复到 0.75–0.77。
+
+结论：0.3 m 与 0.6 m 都停在「桥无法持续输出速度」上，与目标距离无关。可选修法两条，都属安全代码改动，需评审后再动：
+
+- 把 SDK 会话 I/O 移出定时器回调（独立线程 + 队列），保持 20 Hz 与 0.3 秒健康窗口不变；
+- 或把 tick 降到 3–5 Hz，并把健康窗口放宽到 1 秒，同时接受命令频率下降。
+
+### 桥线程化、网页 QoS 与重复 TF 的修正
+
+按第一条修法完成改动后，同一份 0.6 m 目标的桥输出从 0–1 个样本变成 **297 个**、峰值 0.298 m/s（指令 0.300），使能第 1 次即成功，`scan/odometry/map TF stale` 与 `SDK velocity unconfirmed` 都不再出现；收尾只剩导航中止后正常的 `timed out: command`。机体仍未移动，位移 0.042 m，属噪声量级。
+
+同轮排查另外三个问题：
+
+- **网页点云 QoS 不匹配**：`/cloud_registered_body_1` 由 FAST-LIO 以 RELIABLE 发布，网页按 `qos_profile_sensor_data`（best-effort）订阅，实测 8 秒收到 0 帧，`/api/obstacles` 因此返回 `null`。改为默认可靠 QoS 后连续 12 次采样 485–525 点。
+- **重复静态 TF**：反复重启定位 launch 用 `kill`（SIGTERM）而非 SIGINT，子进程不退出，PC2 上同时存在 3 组 `odom → camera_init` 等静态发布器，`map` 时有时无。已清理；并新增 `scripts/g1_cleanup_stale.sh`（支持 `--dry-run`，按 `ROS_DOMAIN_ID` 过滤），`walking_env.sh` 里以 `G1_CLEAN_STALE=1` 选择性触发。
+- **RViz 参数名**：`g1_walking_localization.launch.py` 原来只声明 `show_rviz`，传 `rviz:=false` 既不报错也不生效，于是多起一个 RViz。统一改名为 `rviz` 并默认 `false`，与 `g1_navigation`、`g1_mujoco` 一致。
+
+**地图 z 的更正**：PC2 所用 `clean.pcd` 的地面在 z ≈ −1.1（p50），点云坐标原点在相机高度，因此 Open3D 输出的 `odom2map` z = −0.06 是**正确**的，不存在此前猜测的 1.37 m 垂直漂移；扫描点里地面点占 53.6%，竖直方向本来就有充分约束。出错的是早前的静止对齐把 `z` 取了 +1.305（等于把地面搬到 0），以及网页按绝对 `map` z 做 0.15–1.8 m 过滤——现在改为相对机体的高度带后与地面位置自洽。
