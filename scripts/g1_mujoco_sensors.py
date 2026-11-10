@@ -28,7 +28,7 @@ BOXES = [((0, -4, 1.5), (6, .1, 1.5)),
          ((-3, 2, .6), (.8, .4, .6))]
 
 
-def generate():
+def generate(fixed_obstacles=(), moving=False):
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'logs').mkdir(exist_ok=True)
     model = ROOT / '.deps/src/unitree_mujoco/unitree_robots/g1/g1_29dof.xml'
@@ -52,7 +52,13 @@ def generate():
         world, 'body', name='nav_dynamic_obstacle', mocap='true', pos='0 0 -5')
     ET.SubElement(
         dynamic_obstacle, 'geom', name='nav_dynamic_obstacle_geom', type='box',
-        size='.35 .35 .75', rgba='.9 .35 .2 1', group='0')
+        size='.01 .25 .75' if moving else '.35 .35 .75',
+        rgba='.95 .06 .08 1', group='0')
+    for index, (x, y) in enumerate(fixed_obstacles, 1):
+        body = ET.SubElement(world, 'body', name=f'fixed_obstacle_{index}',
+                             mocap='true', pos=f'{x} {y} -5')
+        ET.SubElement(body, 'geom', name=f'fixed_obstacle_{index}_geom',
+                      type='box', size='.30 .30 .75', rgba='.95 .22 .12 1', group='0')
     ET.SubElement(world, 'body', name='support', mocap='true', pos='0 0 .793')
     eq = ET.SubElement(scene, 'equality')
     ET.SubElement(eq, 'weld', body1='support', body2='pelvis', solref='.004 1')

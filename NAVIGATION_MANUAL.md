@@ -212,14 +212,7 @@ sim/generated/mapping/metadata.json
 
 ## 5. 实时障碍与停止
 
-Nav2 的全局和局部代价地图都订阅 `/livox/lidar`。仿真中预置了一个不在静态地图
-里的动态障碍，可通过服务启停。
-
-默认障碍位置是 `(2.2, 0.4)`。若需改变位置，在启动仿真时指定：
-
-```bash
-./scripts/start_walking_sim.sh --obstacle-x 2.2 --obstacle-y 0.4
-```
+Nav2 的全局和局部代价地图都订阅 FAST-LIO 输出的 `/cloud_registered_body_1`。仿真中预置了一个不在静态地图里的红色障碍，可通过服务启停。
 
 放入和移除障碍：
 
@@ -227,6 +220,14 @@ Nav2 的全局和局部代价地图都订阅 `/livox/lidar`。仿真中预置了
 ros2 service call /g1/obstacle std_srvs/srv/SetBool "{data: true}"
 ros2 service call /g1/obstacle std_srvs/srv/SetBool "{data: false}"
 ```
+
+保留原启动顺序，只给第一个 MuJoCo 脚本增加参数。房间 PLY 和二维栅格仍由原有墙体和底图障碍生成。通过预设开关启动时直接放入障碍，行走中可调用服务移除或重新放入。
+
+```bash
+./scripts/start_walking_sim.sh --moving-obstacle --fixed-obstacles 3
+```
+
+传入 `--moving-obstacle` 后，红色移动薄板（沿 X 轴厚 0.02 m，宽 0.5 m，高 1.5 m）按仿真时间在起点和终点之间往返。`--fixed-obstacles N` 取 0 至 3，按预设顺序放入前 N 个，依次对应 `/g1/fixed_obstacle_1` 到 `/g1/fixed_obstacle_3`。固定障碍是红橙色，服务同样使用 `std_srvs/srv/SetBool`。这些扩展参数用于默认房间场景。
 
 正常停止：
 
