@@ -202,4 +202,4 @@ StopMove=0
 
 但 2 秒只走了 8 cm，按 0.3 m/s 应有约 0.6 m，等效速度约 0.04 m/s；这与 Nav2 闭环跑 14 秒只挪 4 cm 是同一量级。因此「机体不动」的原因在物理侧而非软件侧：吊架绷紧、脚掌没有真正承重，机器人只能小幅挪动。下次带动力测试前应放松吊架让脚掌落地，再复跑同一 0.6 m 目标。
 
-探针编译命令与同一份 SDK 链接参数一致（见上文「SDK 会话二进制的构建」），源码放在 PC2 `/tmp/g1-loco-build/g1_velocity_probe.cpp`，属临时产物，重启即失。
+探针源码已入库：`scripts/g1_loco_velocity_probe.cpp`，支持 `velocity`（默认）、`move`、`fsm` 三种模式，编译命令写在文件头，链接参数与上文 SDK 会话一致；运行前不要 source ROS，否则会加载 Foxy 的 CycloneDDS 0.7 并报 `undefined symbol: ddsi_sertype_v0`。编译产物仍在 `/tmp/g1-loco-build/`，重启即失。
