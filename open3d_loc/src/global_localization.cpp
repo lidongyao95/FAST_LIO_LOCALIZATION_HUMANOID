@@ -22,6 +22,7 @@
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #if __has_include(<tf2_eigen/tf2_eigen.hpp>)
 #include <tf2_eigen/tf2_eigen.hpp>
@@ -223,6 +224,7 @@ private:
     bool loc_initialized_ = false;
 
     /// @brief 当前定位overlap，confidence
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_registration_result_;
     double loc_fitness_;
 
     /// @brief 定位置信度阈值
@@ -291,6 +293,7 @@ GloabalLocalization::GloabalLocalization() : Node("global_localization_node"),
     pub_localization_3d_delay_ms_ = this->create_publisher<std_msgs::msg::Float32>("/localization_3d_delay_ms", 1);
 
     loc_frequence_ = 2.0; //
+    pub_registration_result_ = this->create_publisher<std_msgs::msg::Bool>("/localization_3d_registration_ok", 1);
     loc_fitness_ = 0.0;
     // 注册回调函数
     sub_baselink2odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
@@ -1012,11 +1015,14 @@ void GloabalLocalization::Localization()
             loc_fitness_ = eva_result2.fitness_;
             open3d::utility::LogInfo("reg_result.fitness: {}, eva fitness: {}", reg_result2.fitness_, eva_result2.fitness_);
             /// 超过阈值才更新,防止因配准结果有问题而导致定位出问题
-            if (loc_fitness_ > threshold_fitness_)
+            std_msgs::msg::Bool registration;
+            registration.data = loc_fitness_ > threshold_fitness_;
+            if (registration.data)
             {
                 mat_odom2map_ = reg_matrix;
             }
             lock_mat_odom2map_.unlock();
+            pub_registration_result_->publish(registration);
 
             // save_path
             if (save_scan_)
