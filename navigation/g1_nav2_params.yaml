@@ -1,4 +1,4 @@
-# Generated from installed ROS Humble nav2_bringup defaults by scripts/generate_nav_params.py
+# Generated from installed ROS Humble nav2_bringup defaults by scripts/navigation/generate_nav_params.py
 bt_navigator:
   ros__parameters:
     use_sim_time: true

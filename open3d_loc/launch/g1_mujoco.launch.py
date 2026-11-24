@@ -45,6 +45,6 @@ def generate_launch_description():
     for condition, extra in [(IfCondition(headless), ['--headless']),
                               (UnlessCondition(headless), [])]:
         nodes.append(ExecuteProcess(cmd=[PathJoinSubstitution([root, '.deps/venv/bin/python']),
-                                         PathJoinSubstitution([root, 'scripts/g1_mujoco_sensors.py']),
+                                         PathJoinSubstitution([root, 'scripts/simulation/g1_mujoco_sensors.py']),
                                          '--move', *extra], output='screen', condition=condition))
     return LaunchDescription(nodes)

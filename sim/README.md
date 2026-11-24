@@ -1,24 +1,40 @@
 # G1 MuJoCo localization and navigation demos (ROS 2 Humble)
 
+For the complete pure-simulation walking and navigation workflow, start with
+[`03_simulation.sh`](../scripts/simulation/03_simulation.sh). The `map`
+stage drives through the built-in room and records a FAST-LIO map using simulated
+LiDAR and IMU. The `nav` stage restarts the simulator and loads that map.
+See [the two-stage workflow](../docs/WORKFLOWS.md#纯仿真路线). That unified entry
+defaults to ROS domain 74. For a scene generated from a real scan, use
+[`scan_preview.sh`](../scripts/simulation/scan_preview.sh) and the
+[scan-preview guide](../g1_real_robot_docs/scan_mujoco_preview.md): its runtime
+sensors and robot are still simulated. Live PC2 operation follows the separate
+[real-robot workflow](../docs/WORKFLOWS.md#实机部署路线).
+
+## Supported-base sensor demo
+
+The commands below start the smaller sensor/localization rig, without the
+walking controller or Nav2. Use the workflow above for goal navigation.
+
 Run from the repository root:
 
 ```bash
-./scripts/run_g1_mujoco.sh
+./scripts/simulation/run_g1_mujoco.sh
 # No windows:
-./scripts/run_g1_mujoco.sh headless:=true rviz:=false
+./scripts/simulation/run_g1_mujoco.sh headless:=true rviz:=false
 ```
 
-Stop with Ctrl+C in the launch terminal, or `./scripts/stop_g1_mujoco.sh`. The demo uses ROS_DOMAIN_ID=71 by
+Stop with Ctrl+C in the launch terminal, or `./scripts/simulation/stop_g1_mujoco.sh`. The demo uses ROS_DOMAIN_ID=71 by
  default; export ROS_DOMAIN_ID before launching to change it.
 
 This file documents the original supported-base sensor/localization demo. The
 free-walking controller, map-save/restart flow, Nav2, dynamic obstacle service
 and staged startup are documented in
-[`NAVIGATION_MANUAL.md`](../NAVIGATION_MANUAL.md). Those walking demos use
+[`NAVIGATION_MANUAL.md`](../docs/NAVIGATION_MANUAL.md). Those walking demos use
 `ROS_DOMAIN_ID=72` by default.
 
 Both entry points default to NVIDIA PRIME rendering when `DISPLAY` is set.
-The environment is defined in `scripts/walking_env.sh`:
+The environment is defined in `scripts/env/walking_env.sh`:
 
 ```text
 MUJOCO_GL=glfw
@@ -65,36 +81,16 @@ window shows G1. This entry starts no navigation or walking policy. Use
 
 ## Dependencies and provenance
 
-All dependencies are local to `.deps/`, except the system ROS Humble, PCL,
-OpenCV, Eigen and their normal Ubuntu dependencies. The launch script clears
-workspace overlays and loads only `/opt/ros/humble` plus this repository.
-
-Official source snapshots are registered as Git submodules:
-
-- https://github.com/unitreerobotics/unitree_mujoco
-  `1eb6642e3f3fdfb7fb13a9794fd6a2dd93ea0e7d`
-- https://github.com/unitreerobotics/unitree_rl_mjlab
-  `1425b15f73bd4095f0df53709d7c389c3eb9e790`
-- https://github.com/unitreerobotics/unitree_sdk2
-  `d1abf001220d3e5f59e00a0c4aaa595e00089a4a`
-- https://github.com/Livox-SDK/livox_ros_driver2
-  `21445540f0d100dc86a7e6df312dd70bbdb4afdf`
-- https://github.com/Livox-SDK/Livox-SDK2
-  `c0796f04c143143899c87a773d9f6b7136453c0b`
-
-These are pinned official upstream snapshots, not a claim of a tagged stable
-release. MuJoCo Python is 3.5.0 and NumPy 1.26.4 in a Python 3.10 venv; ROS's
-Python modules are supplied by `/opt/ros/humble` through `walking_env.sh`.
-Open3D is Ubuntu Jammy's 0.14.1+dfsg-7build3, unpacked
-under `.deps/root` with its missing runtime libraries; no sudo install was
-performed. Livox SDK is built under `.deps/sdk`; the driver is built against
-that SDK, not `/usr/local` or another workspace.
+The official model/SDK source revisions, Python environment, Open3D and Livox
+build details are maintained in [the configuration reference](../docs/CONFIGURATION.md).
+This sensor rig shares those dependencies with the walking demo, but does not
+require starting its controller.
 
 ## Rebuild on this configured machine
 
 ```bash
-./scripts/setup_g1_local_deps.sh
-./scripts/build_g1_ros2.sh
+./scripts/env/setup_g1_local_deps.sh
+./scripts/env/build_g1_ros2.sh
 ```
 
 This demo has separate config and launch files; the original real-robot
@@ -105,8 +101,8 @@ Validate the running demo in another terminal:
 
 ```bash
 export ROS_DOMAIN_ID=71
-source scripts/walking_env.sh
-/usr/bin/python3 scripts/check_g1_localization.py --seconds 30
+source scripts/env/walking_env.sh
+/usr/bin/python3 scripts/checks/check_g1_localization.py --seconds 30
 ```
 
 The timestamp-paired measurements are saved to

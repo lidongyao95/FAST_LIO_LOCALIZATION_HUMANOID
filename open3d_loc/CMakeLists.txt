@@ -157,9 +157,10 @@ install(TARGETS
 # Install directories
 install(DIRECTORY
         launch
-        config
         rviz_cfg
         DESTINATION share/${PROJECT_NAME}/
+        PATTERN "__pycache__" EXCLUDE
+        PATTERN "*.pyc" EXCLUDE
 )
 
 # Install include directory

@@ -22,7 +22,7 @@
 ## 2. 4322 离线回放
 
 - [ ] 单独设置 ROS 域，清掉同域重复播放器、FAST-LIO 和定位进程。依 B300 指南 §6.3、§7.3 先启动 FAST-LIO 和实测静态 TF，确认 `base_link ← imu_link`、`motion_link ← base_link` 可查询。核对 `map → odom` 和机体链各边的发布者，确保同一子帧只有一个权威来源。
-- [ ] 用 `ros2 run open3d_loc global_localization_node` 加载当轮实机 YAML 和 PCD，按指南重映射 `/map` 与 `/scan`，记录 `ros2 param dump /global_localization_node`。所有消费者设 `use_sim_time=true`，最后执行 `ros2 bag play "$BAG" --clock`。如果在 Foxy 补做离线对照且播放器缺少该选项，先启动仓库的 `scripts/replay_clock.py`，再启动播放器。每轮只允许一个时钟源。
+- [ ] 用 `ros2 run open3d_loc global_localization_node` 加载当轮实机 YAML 和 PCD，按指南重映射 `/map` 与 `/scan`，记录 `ros2 param dump /global_localization_node`。所有消费者设 `use_sim_time=true`，最后执行 `ros2 bag play "$BAG" --clock`。如果在 Foxy 补做离线对照且播放器缺少该选项，先启动仓库的 `scripts/mapping/replay_clock.py`，再启动播放器。每轮只允许一个时钟源。
 - [ ] 每点做 3 次独立进程启动，共 9 个正常用例。每次重启定位和 FAST-LIO、从头播放该点对应独立 B 包。加一个偏初值用例，建议在同一点正常初值上偏移 0.5 m 和 15°，另记实际偏移。偏初值用例单列，检查是否回到正确参考点，误配单独判失败。
 - [ ] 用扫描叠图复核门框、墙角和走廊，记录参考点、初值和最终位置。若使用 4322 上的 RViz，检查实际 OpenGL 渲染器及 RViz PID 在 `nvidia-smi` 的记录，使用 GPU 渲染。
 

@@ -15,7 +15,7 @@
 ## 2. 已完成的代码改动与验证
 
 - **FAST-LIO** 按保留点的最大时间取帧尾，增加可选的 IMU 朝向诊断。移除无效的逐帧 PCD 配置示例，`/map_save` 会报告空图或写入失败，并在写完临时文件后替换目标 PCD。
-- **采集工具** 修复 `set -u` 下加载 ROS 环境的问题，补上 `G1_DATA` 默认值。新增[采集脚本](../../scripts/record_g1_a_segment.sh)和[单流探针](../../scripts/probe_topics.py)，统一管理建图、录包、退出与可选检查点。
+- **采集工具** 修复 `set -u` 下加载 ROS 环境的问题，补上 `G1_DATA` 默认值。新增[采集脚本](../../scripts/real_robot/record_g1_a_segment.sh)和[单流探针](../../scripts/checks/probe_topics.py)，统一管理建图、录包、退出与可选检查点。
 - **二维导出** 支持调整地面带、障碍带和投影半径，并记录 Z 分位数、投影点数和原点格值。投影裁剪保留完整三维 PLY，原有默认参数下的 PLY、PGM、YAML 与旧版一致。旧静止图用 8 m 半径试裁后，栅格由 810 × 435 缩为 166 × 128，原点仍是未知格（205）。
 
 PC2/Foxy 隔离构建通过。回放 `orient_02` 时，探针测得点云 10.01 Hz、IMU 200.17 Hz，正常保存的 PCD 读回 10,555 点。空图和目标路径为目录时均返回失败。回放还验证了关闭倒装补偿时的方向诊断、定时保存和停止后录包元数据写出。验证目录为 PC2 的 `~/ldy/a-segment-review.rnAh6N`，正式运行目录待同步。
@@ -35,13 +35,13 @@ PC2/Foxy 隔离构建通过。回放 `orient_02` 时，探针测得点云 10.01 
 同步并构建正式运行目录后，先让 Livox 驱动在同一 ROS 域运行。每个采集域只运行一个提供 `/map_save` 的建图节点。以下示例使用新编号：
 
 ```bash
-source scripts/walking_env.sh
+source scripts/env/walking_env.sh
 export ROS_LOCALHOST_ONLY=1
 mkdir -p "$G1_DATA/records"
-setsid nohup bash scripts/record_g1_a_segment.sh hang_A_02 \
+setsid nohup bash scripts/real_robot/record_g1_a_segment.sh hang_A_02 \
   >"$G1_DATA/records/hang_A_02.supervisor.log" 2>&1 </dev/null &
 ```
 
 从本轮 `lio.log` 核对 IMU 初始化和朝向，从 `record.log` 核对两路订阅。建图运行期间调用 `/map_save`，确认 `success=True` 并读回 `maps/hang_A_02.pcd`，再对本轮 `pids` 中的 supervisor PID 发送 `kill -TERM`，检查 `bags/hang_A_02/metadata.yaml`。定时保存通过 `G1_MAP_CHECKPOINT_SECONDS` 启用，默认关闭，结果见 `checkpoint.log`。
 
-频率检查可分别执行 `python3 scripts/probe_topics.py lidar --seconds 10` 和 `python3 scripts/probe_topics.py imu --seconds 10`。每轮归档实测参考、工况与吊具状态、代码版本、生效参数、时钟状态以及录包和地图编号。
+频率检查可分别执行 `python3 scripts/checks/probe_topics.py lidar --seconds 10` 和 `python3 scripts/checks/probe_topics.py imu --seconds 10`。每轮归档实测参考、工况与吊具状态、代码版本、生效参数、时钟状态以及录包和地图编号。

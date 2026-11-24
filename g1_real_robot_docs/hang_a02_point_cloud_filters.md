@@ -1,6 +1,6 @@
 # 点云过滤、彩虹选参与石膏预览
 
-入口是 `scripts/hang_a02/plaster-map/generate.py`。它读取 FAST-LIO 去畸变点云、同时间戳的位姿和 IMU 评分，用同一批静态回波生成石膏网格的源点云和 Nav2 二维地图。参数每次运行独立生效，默认值复现上一轮交付的地图。
+入口是 `scripts/experiments/hang_a02/plaster-map/generate.py`。它读取 FAST-LIO 去畸变点云、同时间戳的位姿和 IMU 评分，用同一批静态回波生成石膏网格的源点云和 Nav2 二维地图。参数每次运行独立生效，默认值复现上一轮交付的地图。
 
 ## 参数
 
@@ -29,7 +29,7 @@ out=$(mktemp -d "$HOME/ldy/hang-a02-filter.XXXXXX")
 cd "$out"
 
 # 复现近距 + IMU 候选图
-python3 "$repo/scripts/hang_a02/plaster-map/generate.py" \
+python3 "$repo/scripts/experiments/hang_a02/plaster-map/generate.py" \
   --evidence "$evidence" --near-radius 1.5 --imu-max-accel 0.6
 
 # 三项叠加时，在另一个新目录执行上面的命令并追加 --sample-period 2
@@ -38,7 +38,7 @@ python3 "$repo/scripts/hang_a02/plaster-map/generate.py" \
 `--scans` 和 `--floor-metadata` 可以指定配对扫描目录和带 `floor_fit` 的 JSON。运行 `--help` 可查看完整参数。结果包括 `clean.pcd`、`map.yaml`、`map.pgm` 和 `metadata.json`，后者记录实际生效参数和保留帧数。需要石膏预览时，在同一输出目录使用 4322 上带 scikit-image 的 Python。
 
 ```bash
-"$HOME/anaconda3/bin/python" "$repo/scripts/hang_a02/plaster-map/render.py"
+"$HOME/anaconda3/bin/python" "$repo/scripts/experiments/hang_a02/plaster-map/render.py"
 ```
 
 对比参数时同时检查中央残点、起点和四周障碍物。每 2 秒取一帧会明显降低外围覆盖。近距半径越大，机器人附近的真实障碍回波也越容易被剔除。
@@ -63,7 +63,7 @@ python3 "$repo/scripts/hang_a02/plaster-map/generate.py" \
 
 ```bash
 cd "$HOME/ldy/hang-a02-filter-comparison"
-"$HOME/anaconda3/bin/python" "$repo/scripts/hang_a02/plaster-map/compare_reruns.py" \
+"$HOME/anaconda3/bin/python" "$repo/scripts/experiments/hang_a02/plaster-map/compare_reruns.py" \
   plaster-map parameters-legacy-check parameters-check.6M6U96/default \
   --out rerun-report
 ```
@@ -74,19 +74,19 @@ cd "$HOME/ldy/hang-a02-filter-comparison"
 
 ![RViz 全部七种非空组合。组合图的 Time 是每两秒一帧。](assets/hang_a02_filters/hang_a02_rviz_combined.png)
 
-- [`compare.py`](../scripts/hang_a02/compare.py) 扫描高度、近距、时间、IMU 各三档，输出 `grids.npz`、代表档位的 `cloud-*.npy`。[`render.py`](../scripts/hang_a02/render.py) 输出逐档密度图和统计，采用固定的 10 cm 网格与共同的对数色标，颜色表示每格回波数。
-- [`rviz_review.py`](../scripts/hang_a02/rviz_review.py) 将离地高度写到 Z 轴，按 8 cm 体素保留显示点，把各档平移到同一窗口中。[`review.rviz`](../scripts/hang_a02/review.rviz) 用 `AxisColor` 按 Z 轴显示彩虹色，各档共用 **0.12–2.50 m** 的颜色范围和俯视尺度。青线是机器人轨迹。
-- [`combined/`](../scripts/hang_a02/combined/) 使用同样的绘图口径展示近距 1.5 m、每 2 秒一帧、IMU P95 ≤ 0.6 m/s² 的所有组合。单项截图里的时间档是每 1 秒一帧。
+- [`compare.py`](../scripts/experiments/hang_a02/compare.py) 扫描高度、近距、时间、IMU 各三档，输出 `grids.npz`、代表档位的 `cloud-*.npy`。[`render.py`](../scripts/experiments/hang_a02/render.py) 输出逐档密度图和统计，采用固定的 10 cm 网格与共同的对数色标，颜色表示每格回波数。
+- [`rviz_review.py`](../scripts/experiments/hang_a02/rviz_review.py) 将离地高度写到 Z 轴，按 8 cm 体素保留显示点，把各档平移到同一窗口中。[`review.rviz`](../scripts/experiments/hang_a02/review.rviz) 用 `AxisColor` 按 Z 轴显示彩虹色，各档共用 **0.12–2.50 m** 的颜色范围和俯视尺度。青线是机器人轨迹。
+- `compare.py --mode combined` 使用同样的绘图口径展示近距 1.5 m、每 2 秒一帧、IMU P95 ≤ 0.6 m/s² 的所有组合。`render.py` 和 `rviz_review.py` 按 `grids.npz` 自动选择组合布局，不需要另一套脚本或 RViz 配置。单项截图里的时间档是每 1 秒一帧。
 
 ### 复现对比
 
-在 4322 上准备已有的原始录包、配对扫描及拟合地面文件。运行任一组时使用独立输出目录。组合图把下面的 `suite` 路径改为 `"$suite/combined"`。
+在 4322 上准备已有的原始录包、配对扫描及拟合地面文件。运行任一组时使用独立输出目录。组合图将下面的 `--mode single` 改为 `--mode combined`，其余命令相同。
 
 ```bash
-suite="$repo/scripts/hang_a02"
+suite="$repo/scripts/experiments/hang_a02"
 out=$(mktemp -d "$HOME/ldy/hang-a02-sweep.XXXXXX")
 cd "$out"
-python3 "$suite/compare.py"
+python3 "$suite/compare.py" --mode single
 python3 "$suite/render.py"
 
 source /opt/ros/humble/setup.bash

@@ -26,21 +26,21 @@ ros2 run fast_lio fastlio_mapping --ros-args --params-file "$PWD/FAST_LIO/config
 
 ```bash
 # 终端 2，先启动采集
-python3 scripts/record_dufomap_scans.py /tmp/g1-dufo-scans \
+python3 scripts/mapping/record_dufomap_scans.py /tmp/g1-dufo-scans \
   --lidar-in-body 0 0 0.45 --frames 150 --timeout 45
 ```
 
 ```bash
 # 终端 3，使用与 ROS 兼容的 MuJoCo Python 环境
-python scripts/g1_mujoco_sensors.py --headless --transient-obstacle
+python scripts/simulation/g1_mujoco_sensors.py --headless --transient-obstacle
 ```
 
 采集结束后停止两个仿真进程。离线环境运行以下命令。
 
 ```bash
-python scripts/check_dufomap_sim.py
-python scripts/dufomap_clean.py /tmp/g1-dufo-scans /tmp/g1-dufo-clean.pcd
-python scripts/export_g1_map.py /tmp/g1-dufo-clean.pcd \
+python scripts/checks/check_dufomap_sim.py
+python scripts/mapping/dufomap_clean.py /tmp/g1-dufo-scans /tmp/g1-dufo-clean.pcd
+python scripts/mapping/export_g1_map.py /tmp/g1-dufo-clean.pcd \
   --out /tmp/g1-dufo-map --known-free-radius 0
 ```
 
@@ -76,7 +76,7 @@ XYZ，`pose` 是同坐标系下的雷达起点和单位四元数。调用使用�
 
 ## 随机障碍闭环复扫和 RViz 验收
 
-`scripts/dufomap_loop_sim.py` 让 MuJoCo 的支撑式 G1 传感器沿闭合轨迹走两圈，
+`scripts/simulation/dufomap_loop_sim.py` 让 MuJoCo 的支撑式 G1 传感器沿闭合轨迹走两圈，
 首圈在四个区域内随机选取箱体位置并分时刷新，次圈箱体退场后复扫。采集和
 FAST-LIO 处理真实仿真的 LiDAR/IMU 消息。箱体位置仅写入验收文件，清理脚本
 只读取点云、位姿和清场复扫的时间边界。闭环采集采用支撑轨迹，RViz 验收采用
@@ -86,11 +86,11 @@ FAST-LIO 处理真实仿真的 LiDAR/IMU 消息。箱体位置仅写入验收文
 第三终端运行以下命令，每个种子用独立目录。
 
 ```bash
-python scripts/dufomap_loop_sim.py "$RUN/truth.json" --seed 4322 --speed 1.5 \
+python scripts/simulation/dufomap_loop_sim.py "$RUN/truth.json" --seed 4322 --speed 1.5 \
   | tee "$RUN/sim.log"
 stamp=$(sed -n 's/^CLEAR_PASS_NS=//p' "$RUN/sim.log")
-python scripts/dufomap_clean.py "$RUN/scans" "$RUN/clean.pcd" --revisit-after "$stamp"
-python scripts/check_dufomap_loop.py "$RUN" --revisit-after "$stamp"
+python scripts/mapping/dufomap_clean.py "$RUN/scans" "$RUN/clean.pcd" --revisit-after "$stamp"
+python scripts/checks/check_dufomap_loop.py "$RUN" --revisit-after "$stamp"
 ```
 
 `--revisit-after` 启用第二道检查。DUFOMap 按自由空间证据剔除动态点后，首圈保留点

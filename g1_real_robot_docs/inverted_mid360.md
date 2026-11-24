@@ -15,7 +15,7 @@
 ## 离线运行
 
 先结束旧 FAST-LIO 和旧播放器，确保独立域 193 没有其他输入源。
-每个终端都在仓库根目录执行 `source scripts/walking_env.sh` 和
+每个终端都在仓库根目录执行 `source scripts/env/walking_env.sh` 和
 `export ROS_DOMAIN_ID=193`。先创建输出目录，再分别运行：
 
 ```bash

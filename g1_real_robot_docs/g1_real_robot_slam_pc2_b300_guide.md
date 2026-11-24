@@ -2,9 +2,9 @@
 
 从理解系统到传感器接入、建图、重定位与自主导航。
 
-更新日期：2026-11-04。默认在机载 **PC2（Jetson Orin NX、ARM64、Ubuntu 20.04.6、ROS 2 Foxy）** 上运行。Mac 通过有线 SSH 操作。外部服务器和 Ubuntu 笔记本是备选算力。
+场景方案始于 2026-11-04，入口说明整理于 2026-11-23。默认在机载 **PC2（Jetson Orin NX、ARM64、Ubuntu 20.04.6、ROS 2 Foxy）** 上运行。Mac 通过有线 SSH 操作。外部服务器和 Ubuntu 笔记本是备选算力。
 
-**先看 [真机验证状态](README.md)。** 已实测 SSH、驱动与 FAST-LIO 构建、MID-360 点云与 IMU 录包、静止实时里程计。B300 正式地图、独立重定位、持续负载与运动导航仍待验收。第 7～10 章保留接口设计和候选步骤，当前 PC2 overlay 尚无 `open3d_loc` 或 `nav2_bringup`。
+**先看[使用流程](../docs/WORKFLOWS.md#实机部署路线)执行日常操作。** 本指南保留系统概念、PC2 环境、B300 现场方案及验收要求；外部 x86/Humble 的差异已合入附录 B。各次实测结论按[实机验证状态](README.md)和设备日期查阅，不能把历史包清单当作当前部署状态。
 
 ## 0. 本次现场决策
 
@@ -120,12 +120,12 @@ MID-360 → Livox 驱动 → 点云 + IMU → FAST-LIO → 局部里程计、扫
 | 能力 | 仓库现状 | 真机状态 |
 |---|---|---|
 | FAST-LIO 建图、保存 PCD | 有实现和仿真使用流程 | 静止实时里程计已发布。正式建图、安装外参和地图质量待验收。 |
-| Open3D 已知地图定位 | 有实现和仿真入口 | 有历史 G1 配置，但路径与坐标假设待修订和验证 |
+| Open3D 已知地图定位 | `04_robot_ready.sh localize` 启动持续配准 | 独立数据、实测初值与现场精度需按第 7 章验收 |
 | PCD 转 PLY、PGM、YAML | 有导出脚本 | 投影假设需要结合实景检查 |
-| Nav2 规划、避障和目标导航 | 有仿真配置与启动脚本 | 不能直接作为实机入口 |
-| Nav2 到 G1 官方高层运控 | 有可参考的 SDK 接口 | 本仓库缺少经过真机验收的专用速度桥 |
+| Nav2 规划、避障和目标导航 | 仿真与实机使用不同入口 | 实机 `05_web_navigation.sh` 只提供全局规划 |
+| Nav2 到 G1 官方高层运控 | 有独立实机速度桥与 SDK 会话源码 | 源码存在不等于硬件联测与现场运动通过验收 |
 | 真机 TF、机器人轮廓、障碍处理 | 仿真有对应实现 | 需要独立适配 |
-| PC2 单机部署 | Foxy / ARM64 上已构建 Livox 驱动与 FAST-LIO | 持续负载、散热、完整定位与导航待验收 |
+| PC2 单机部署 | 有 Foxy / ARM64 构建与专项运行记录 | 当前安装、持续负载及现场效果按本轮运行核对 |
 
 本文同时使用实机记录中的**已实测**状态。其余三个状态标签：**源码已核对**表示代码中存在该行为；**候选步骤**表示尚未现场跑通；**待实现**表示需要开发。源码存在和程序启动都不等于真机效果通过验收。
 
@@ -194,7 +194,7 @@ Nav2 的常见地面导航流程使用二维栅格地图。每个格子表示已
 | 驱动接收地址 | `192.168.123.164` | PC2 `eth0`，配置已复核 |
 | 物理连接 | PC2 与雷达同一网段；备选方案用网线 | 网口开放情况、供电、固定方式 |
 
-当前可用公钥登录：`ssh unitree@192.168.123.164`。现场待确认项见 [硬件清单](debug_log/README.md#硬件确认清单现场填写)。
+当前可用公钥登录：`ssh unitree@192.168.123.164`。现场待确认项填入本节设备清单，并按设备和日期保存在[调试记录](debug_log/README.md)中。
 
 ### 3.2 部署方案比较与本次选择
 
@@ -216,7 +216,7 @@ Nav2 的常见地面导航流程使用二维栅格地图。每个格子表示已
 1. 先确认 PC2 到底卡在哪里：是 CPU 满载、内存不足、磁盘写满，还是依赖装不上。不要因为一次建图慢就直接搬服务器。
 2. 规划服务器位置：靠近机器人活动区域、有市电、通风、不会被踢到；网线沿墙或走线槽固定，跨通道处加线槽或胶带压平，避免绊人和被机器人压断。
 3. 服务器加一块与雷达同网段的网卡，或在同一交换机上接雷达和服务器；接收地址改成该网卡地址（示例 `.222`）。**不要改服务器默认路由**，保留原来的上网和 SSH 路径。
-4. 服务器仍是 x86_64 Ubuntu 22.04 时，可按[通用部署笔记](g1_real_robot_slam_notes.md)第 4 章准备 x86 工作区；执行机器从 PC2 换成服务器，地图和录包路径按服务器磁盘调整。
+4. 服务器仍是 x86_64 Ubuntu 22.04 时，可按[附录 B.3](#b3-x86humble-环境差异)准备 x86 工作区；执行机器从 PC2 换成服务器，地图和录包路径按服务器磁盘调整。
 5. 服务器与 PC2 若同时在线，只能有一台接收雷达 UDP，避免两个驱动争用或互相改写雷达目标地址。
 
 如果网线长度、走线条件或供电不允许，就不要勉强搬服务器，回到 PC2 或笔记本方案。
@@ -286,7 +286,7 @@ Mac / Windows ──SSH / 远程桌面──→ 服务器（备选算力）→ �
 export G1_REPO="$HOME/FAST_LIO_LOCALIZATION_HUMANOID"
 export G1_DATA="$HOME/g1_real_data"
 export ROS_DISTRO=foxy ROS_DOMAIN_ID=72 ROS_LOCALHOST_ONLY=1
-source "$G1_REPO/scripts/walking_env.sh"
+source "$G1_REPO/scripts/env/walking_env.sh"
 ros2 pkg prefix livox_ros_driver2
 ros2 pkg prefix fast_lio
 ros2 interface show livox_ros_driver2/msg/CustomMsg
@@ -302,7 +302,7 @@ ros2 interface show livox_ros_driver2/msg/CustomMsg
 
 ```bash
 cd "$HOME/FAST_LIO_LOCALIZATION_HUMANOID"
-ROS_DISTRO=foxy G1_BUILD_PACKAGES="livox_ros_driver2 fast_lio" ./scripts/build_g1_ros2.sh
+ROS_DISTRO=foxy G1_BUILD_PACKAGES="livox_ros_driver2 fast_lio" ./scripts/env/build_g1_ros2.sh
 ```
 
 Foxy 适配与 SDK 版本冲突见 [部署与构建记录](debug_log/2026-11-04_g1_pc2_slam.md)。现有 `open3d_loc`、`nav2_bringup` 在 PC2 环境中均无法解析。定位依赖与 Nav2 版本另行解决，备选 x86/Humble 工作区见附录 B。
@@ -496,7 +496,7 @@ ros2 service call /map_save std_srvs/srv/Trigger '{}'
 
 ```bash
 ls -lh "$G1_DATA/maps/b300_door_01.pcd"
-/usr/bin/python3 "$G1_REPO/scripts/export_g1_map.py" \
+/usr/bin/python3 "$G1_REPO/scripts/mapping/export_g1_map.py" \
   "$G1_DATA/maps/b300_door_01.pcd" --out "$G1_DATA/maps/b300_door_01" \
   --known-free-radius 0
 ```
@@ -543,79 +543,55 @@ ls -lh "$G1_DATA/maps/b300_door_01.pcd"
 
 ## 7. 加载地图，验证重定位与实时定位
 
-第 7 章是定位适配参考。PC2 已用 ARM Open3D 完成静止录包的定位冒烟。Foxy 播放器的回放时钟需使用已验证的 `scripts/replay_clock.py` 路线，Humble 示例中的 `--clock` 用于 4322。正式 B 段使用独立数据和实测安装外参，进度见[第二台 G1 验证状态](README.md#真机验证状态2026-11-05第二台-g1)。
+第 7 章是定位适配参考。PC2 已用 ARM Open3D 完成静止录包的定位冒烟。Foxy 播放器的回放时钟需使用已验证的 `scripts/mapping/replay_clock.py` 路线，Humble 示例中的 `--clock` 用于 4322。正式 B 段使用独立数据和实测安装外参，进度见[第二台 G1 验证状态](README.md#真机验证状态2026-11-05第二台-g1)。
 
-### 7.1 先理解当前入口的坐标假设
+### 7.1 当前定位入口与坐标关系
 
-**源码已核对：** `localization_3d_g1.launch.py` 包含 FAST-LIO、定位节点与 RViz；父入口声明并转发必填的 `path_map:=<PCD或PLY路径>`。子入口包含 `odom → camera_init`、`imu_link → base_link`、`base_link → motion_link` 的静态关系。它们不能未经检查就代表真机完整安装关系。
+PC2 实时定位使用 `scripts/real_robot/04_robot_ready.sh localize`，操作顺序见[实机部署路线](../docs/WORKFLOWS.md#实机部署路线)。底层复用 `g1_walking_localization.launch.py` 的 `real_robot:=true` 分支：不启动 MuJoCo，也不发布仿真骨盆高度和 LiDAR 安装 TF。旧的 `localization_3d_g1` / `open3d_loc_g1` 入口已移除。
 
-FAST-LIO 发布 `camera_init → body`；定位节点又读取命名为 `base_link`、`imu_link` 的变换。调试前必须在记录中说明 `body` 是否被当成雷达 IMU 原点、哪里转换为机体原点，以及零变换是否有实际依据。存在断开的 TF 或不一致的机体语义时，先完成适配，再评价定位精度。
+当前实时位姿链为：
 
-旧 launch 静态发布 `base_link → motion_link`，定位节点又默认动态发布 `map → motion_link`，同时启用会使 `motion_link` 有两个父 frame。若采用旧机体链，诊断命令应显式设 `publish_motion_tf:=false`；这只能消除该项冲突，不能代替完整真机 TF 适配。
-
-定位节点在构造阶段查询 `base_link ← imu_link` 和 `motion_link ← base_link`，查询失败返回 false，但调用方没有检查。必须先启动已测量的安装 TF、在检查终端确认可查询，再启动定位；若定位启动日志出现查询失败，补齐后重启定位，不依赖之后自动恢复。外部查询成功仍不能保证节点自己的 TF 缓存在构造期间已收到数据；源码增加等待 TF 和失败阻断前，这里仍是未验收的候选流程。
-
-| 关系 | 本阶段候选发布者 / 状态 | 检查要求 |
-|---|---|---|
-| `map → odom` | 定位节点 | 初始化前也可能发布，不作为已定位证明 |
-| `odom → camera_init` | 经核实的静态关系 | 仅在两坐标实际重合时可设单位变换 |
-| `camera_init → body` | FAST-LIO | body 是 LIO 的 IMU 参考点，需核对驱动输出语义 |
-| `body` 到机体安装链 | 真机适配方案待确定 | 必须连接内部与机体 frame，不可直接照搬零变换 |
-| `imu_link → base_link → motion_link` | 仅在选用旧链且实测成立时由安装 TF 发布 | 记录轴向、原点和数值，不再由定位发布 `map → motion_link` |
-
-上表列出当前诊断所涉及关系，完整可执行的真机 TF 链仍待实现，必须与第 8 章导航链统一发布权。下面显式启动命令仍以前述适配通过为前提。
-
-### 7.2 设置定位参数
-
-复制 `open3d_loc/config/loc_param_g1.yaml` 为：
-
-```bash
-cp "$G1_REPO/open3d_loc/config/loc_param_g1.yaml" \
-   "$G1_DATA/config/loc_real.yaml"
+```text
+Open3D: map → odom
+静态坐标约定: odom → camera_init
+FAST-LIO: camera_init → body
 ```
 
-配置中的 `initialpose` 为 `[x,y,z,roll,pitch,yaw]`，位置用米，该实现的欧拉角用**度**，且源码按 `Rx * Ry * Rz` 相乘，不能直接套用其他工具的欧拉角顺序。
+`body` 是 FAST-LIO 的 IMU 参考点，不能直接当作脚底或任意机体原点。共享 launch 中 `base_link → imu_link`、`base_link → motion_link` 的单位变换用于定位节点内部坐标约定，真实传感器安装外参仍由当前输入配置提供。改变挂载、机体参考点或安装关系时需重新核对。
 
-源码将 `initialpose` 赋给初始 `map ← odom` 变换。在本次里程计起始接近单位变换时，才可近似把它理解为“机器人起点”。若局部里程计已运动，初始化变换应结合当前里程计求解。全零只适用于坐标和起点假设都成立的情况。
+定位入口检查配准健康和 `map → body` 更新。已有静止预览 `map → camera_init` 发布器时先停止它，避免重复地图对齐；也不要同时运行旧 Open3D 或另一套 FAST-LIO。入口中的就绪检查不能代替独立位置和朝向误差验收。
 
-`/initialpose` 回调仅在 `!(loc_initialized_ && loc_fitness_ > 0.99)` 时更新该变换；已经初始化且 fitness 大于 0.99 时请求会被忽略。该回调未按消息 header 转换坐标，也没有使用 covariance 进行 AMCL 式初始化。二维工具不能表达任意三维初始姿态，不能无条件作为重置入口。
+### 7.2 初始对齐与参数
 
-用 `T_A_B` 表示把 B 坐标变到 A 坐标，则应计算 `T_map_odom = T_map_base × inverse(T_odom_base)`。其中 `T_odom_base` 必须包含雷达 IMU 到机体的安装变换，不能直接拿传感器位姿代替。初值生效需结合回调更新日志、`map → odom` 数值及扫描叠合确认；高 fitness 时的强制重置接口尚待设计。
+`04_robot_ready.sh localize --map MAP.ply` 会交互要求 `X Y Z ROLL PITCH YAW`；可用 `--initial` 显式传入。位置用米、角度用度，初值表示 `map ← camera_init`。在当前 `odom → camera_init` 单位变换约定下，它也就是定位节点的 `map ← odom` 初始对齐。源码欧拉角按 `Rx * Ry * Rz` 组合，不能照搬另一种角度约定。
 
-演示位置固定在 B300 门口，所以要把演示时的初始位置和朝向测出来并记录：在地面用胶带标出机身投影或两只脚的位置，以门框和走廊方向作为朝向基准，把对应的 `x`、`y`、`z`、`yaw` 写入 `loc_real.yaml`。标记点只能辅助复现摆放，不能直接确定传感器三维位姿；只有局部里程计和安装外参条件一致并确认配准正确时，才可复用初值。若机器人实际摆放偏离标记点，应按当前里程计重新求解，不要硬套记录值。
+若用 `T_A_B` 表示 B 坐标到 A 坐标的变换，应由当前参考位姿计算：`T_map_camera_init = T_map_body × inverse(T_camera_init_body)`。机体在地图上的位置与当前局部坐标系到地图的对齐并非同一个量。全零仅适用于两个坐标系实际重合的情况。
+
+在 B300 门口可用地面标记辅助复现位置和朝向，但仍需结合 IMU 参考点、安装外参与当前里程计求解，不能把脚印位置直接填作传感器初值。更换地图、重启 FAST-LIO 或改变摆放后重新确认。
+
+配准阈值、频率和点数上限由共享定位 launch 显式设置，参数解释见[配置参考](../docs/CONFIGURATION.md#42-三维重定位配置)。如需修改，保存本轮源码差异和 `ros2 param dump /global_localization_node`，不再复制另一份旧 `loc_real.yaml` 模板。
+
+`/initialpose` 不是通用强制重置接口：源码在已初始化且 fitness 大于 0.99 时可能忽略请求，也未按消息 header 转换初值。重新初始化应停止本轮定位入口，使用本次实测对齐重新启动。
 
 ### 7.3 离线定位 B 段
 
-先停止其他 FAST-LIO 和播放器。终端 L1 按第 6.3 节启动 FAST-LIO，仍使用 `use_sim_time=true`，不要同时再启动包含 FAST-LIO 的组合 launch。
+回放使用独立于现场实时链的 ROS 域。`04_robot_ready.sh` 会拒绝域内的回放 `/clock`，因此回放诊断直接使用共享 launch，不能使用实时入口绕过时钟检查。
 
-终端 L2 运行定位节点。当前 `open3d_loc_g1.launch.py` 暴露 `use_sim_time` 和必填的 `path_map`，实机参数文件和安装 TF 仍需单独配置；在 `ros2 launch` 后追加节点级 `--ros-args` 不能代替这些参数入口。实际操作应在以下两种方式中选择一种：
-
-1. 复制该 launch 为实机专用文件，通过 `path_map` 传入本次地图，并使用本次配置和已核实的静态变换，再构建并运行；适合后续维护。
-2. 将该 launch 中已经核实的静态变换单独启动，再直接运行定位节点；适合首次逐节点诊断。
-
-第二种方式的定位节点命令如下，**前置条件是对应 TF 已按实测完成，不能遗漏安装 TF 的先行启动和成功查询检查**。以下关闭定位节点的 `motion_link` TF，仅适用于保留旧机体链的候选诊断方案：
+先停止该域其他 FAST-LIO、定位和播放器。终端 L1 按第 6.3 节启动 FAST-LIO，使用回放时间。终端 L2 输入本次测得的六维对齐后，启动定位；地图可为 PCD 或 PLY：
 
 ```bash
-ros2 run open3d_loc global_localization_node --ros-args \
-  --params-file "$G1_DATA/config/loc_real.yaml" \
-  -p use_sim_time:=true \
-  -p path_map:="$G1_DATA/maps/b300_door_01.pcd" \
-  -p publish_motion_tf:=false \
-  -p threshold_fitness_init:=0.5 \
-  -p threshold_fitness:=0.5 \
-  -r /map:=/localization/map_cloud \
-  -r /scan:=/localization/scan_cloud
+# 先输入 X Y Z ROLL PITCH YAW 六个实测值（米、度），再按 Enter。
+read -r align_x align_y align_z align_roll align_pitch align_yaw
+ros2 launch "$G1_REPO/open3d_loc/launch/g1_walking_localization.launch.py" \
+  "repo:=$G1_REPO" real_robot:=true start_lio:=false use_sim_time:=true \
+  "map_ply:=$G1_DATA/maps/b300_door_01/map.ply" \
+  "initial_x:=$align_x" "initial_y:=$align_y" "initial_z:=$align_z" \
+  "initial_roll:=$align_roll" "initial_pitch:=$align_pitch" "initial_yaw:=$align_yaw"
 ```
 
-这里的 0.5 来自现有 G1 launch，只是初始实验值，不是正确定位的保证。直接运行节点时，其余未指定参数使用源码默认值，可能不同于原 launch；应保存 `ros2 param dump /global_localization_node`，后续将所需值写入专用配置，不能把两种启动方式视为完全等价。
+终端 L3 运行 RViz，启用回放时间、Fixed Frame 设为 `map`，查看 `/localization/map_cloud` 和 `/localization/scan_cloud`。终端 L4 最后播放独立 B 段。Humble 可使用 `ros2 bag play ... --clock`；PC2/Foxy 按[离线回放说明](inverted_mid360.md)提供时钟，不照抄不支持的参数。
 
-终端 L3 运行 RViz，启用回放时间，Fixed Frame 设为 `map`，添加重映射后的地图和扫描；终端 L4 最后播放独立 B 段：
-
-```bash
-ros2 bag play "$G1_DATA/bags/loc_B_01" --clock # 仅限支持 --clock 的 rosbag2
-```
-
-B 段建议从 B300 门口标记点、演示时的朝向开始录制；这样既能验证初值，也能直接复现演示的定位过程。若沿用原组合 launch，需传入 `path_map`，完成 TF 修改并重新构建，并确认 `/rviz_map_cur` 的 `use_sim_time=true`；原 RViz 节点没有显式设置该参数。
+B 段与建图 A 段独立，覆盖测量过的位置、朝向和相似结构。保存初值、地图校验值、配准健康、TF、误差和初始化时长，再按下节验收。
 
 ### 7.4 定位验收
 
@@ -654,27 +630,15 @@ ros2 run tf2_ros tf2_echo map odom
 
 ## 8. 让定位与地图满足导航接口
 
-本章开始进入**待适配/待实现**部分。Nav2 的部署需要机器人模型/TF、里程计和传感器输入等配套条件，可结合 [Nav2 官方首次机器人配置指南](https://docs.nav2.org/rolling/configuration_and_development/first_time_robot_setup_guide/) 理解整体接口；链接当前为 rolling，具体参数按实际选定的 Nav2 发行版核对。
+当前实机只保留网页仅规划入口。本章用于核对地图、TF、障碍与机体参考点；源码默认值仍需结合现场验证。
 
-### 8.1 导航需要什么 TF
+### 8.1 导航使用的 TF 与机体参考点
 
-目标设计示意如下，frame 名称可调整，但含义和发布权必须明确：
+当前实机入口把 Nav2 的 `robot_frame` 设为 `body`，使用第 7 章的 `map → odom → camera_init → body` 链。网页使用同一个 `body` 位姿。每条 TF 只能由一个节点负责，不要另外发布同名地图对齐或运行 AMCL。
 
-```text
-map → odom → base_footprint → base_link → lidar_imu → lidar
-```
+仿真链则由 `scripts/simulation/g1_nav_tf.py` 生成平面 `/odom`、`odom → base_footprint → base_link`，使用 0.793 m 骨盆高度。这套仿真投影不在 `real_robot:=true` 分支运行。
 
-| 变换/数据 | 含义 | 计划发布者 | 核查重点 |
-|---|---|---|---|
-| `map → odom` | 将局部运动放入保存的地图 | 地图配准定位 | 校正与失败行为、时间戳 |
-| `odom → base_footprint` | 连续的平面机体运动 | 真机里程计适配器 | 不能直接使用会全局跳变的定位差分 |
-| `base_footprint → base_link` | 地面投影到机体 | 机体姿态/投影适配 | 起伏、横滚俯仰、机体原点 |
-| 机体到传感器 | 固定安装关系 | URDF/静态 TF | 实测旋转和平移、不重复发布 |
-| `/odom` | 局部位姿与速度 | 同一里程计适配器 | frame、速度表达坐标、时间与协方差 |
-
-每个子 frame 只有一个父 frame；每条动态变换只有一个负责发布的节点。若用 `open3d_loc` 提供 `map → odom`，不要再同时让 AMCL 发布同一变换。
-
-`camera_init/body` 可以保留为内部 frame，但必须计算清楚到导航机体的完整变换。当前仿真 `g1_nav_tf.py` 使用 0.793 m 高度和仿真骨盆语义；将其数字改为雷达高度，无法自动解决旋转、原点偏置和步行起伏，不能直接当作真机适配完成。
+如后续改用脚底投影或另一机体原点，需一起实现相应里程计/速度、TF、轮廓和障碍高度基准，并重新核对定位与控制器参数。不能仅改 frame 名称或把仿真高度换成雷达高度。
 
 ### 8.2 检查二维导航地图
 
@@ -698,7 +662,7 @@ b300_door_01/
 
 ### 8.3 实时障碍点云不是换一个话题就够了
 
-现有 Nav2 仿真配置订阅 `/livox/lidar` 的 PointCloud2，真机候选驱动输出 CustomMsg。可以设计 CustomMsg 转换节点，也可以评估 FAST-LIO 的体坐标扫描作为输入，但两者都需要验证：
+当前实机只启动全局代价地图。FAST-LIO 的 `/cloud_registered_body_1`（PointCloud2）经独立规划障碍节点转发到 `/g1/planning_obstacles/cloud`，由网页的“规划考虑实时障碍”控制；关闭时发布空观测并清除实时障碍层，静态地图保留。原始雷达云仍供定位和网页显示。仍需逐项验证：
 
 - frame 与时间戳可转换到代价地图；传感器原点正确。
 - 已去除机器人自身点云，地面过滤不把地面当作障碍。
@@ -708,9 +672,11 @@ b300_door_01/
 
 只有确认 PointCloud2 的数值语义后，才能把 `/cloud_registered_body_1` 接入障碍层。LIO 停止更新时该输入也可能失效，导航门禁应考虑此类关联失效。
 
-**本章通过条件：** 完整 TF 可查、无重复发布；地图与机体对齐；里程计连续；静态和移动障碍在代价地图中表现合理。此时仍可以让速度桥保持禁用，仅检查感知和规划。
+**本章通过条件：** 完整 TF 可查、无重复发布；地图与机体对齐；里程计连续；静态和移动障碍在代价地图中表现合理。当前入口到此只检查感知和规划。
 
-## 9. 将导航速度连接到 G1 运控
+## 9. 后续接入实机运动的设计与验收要求
+
+本章是后续运动功能的设计要求，不是当前可执行的部署步骤。当前仓库没有实机 Nav2 速度桥；保留的 SDK 状态查询和独立速度探针也不由 Web 启动。
 
 ### 9.1 接口与职责
 
@@ -722,7 +688,7 @@ Nav2 输出期望平面速度，通常包括前后、横向和偏航速度。速
 
 停止测试按第 0.2 节逐项区分取消目标、零速、遥控接管、失能及该设备实际配备的硬件停止手段。减速和支撑状态取决于具体模式与固件，需按厂家规程和现场保护方案验证，不能从 SDK 零速调用推断必然失去支撑或实际已经停止。
 
-### 9.2 待实现的速度桥契约
+### 9.2 速度桥实现与验收要求
 
 | 项目 | 应明确的行为 |
 |---|---|
@@ -730,7 +696,7 @@ Nav2 输出期望平面速度，通常包括前后、横向和偏航速度。速
 | 使能 | 启动默认禁用；定位、传感器和控制状态合格后才允许自主速度 |
 | 限制 | 速度与加速度约束一致，拒绝非有限值，按现场验证限制横移和转向 |
 | 时效 | 以本机接收时刻检查新鲜度；对消息自带时间戳另做合理性检查 |
-| 定位健康（待实现） | 检查最近成功配准年龄、初始化状态、连续失败次数，以及扫描/里程计年龄；禁止用缓存 fitness 和里程计 delay 代替配准健康 |
+| 定位健康 | 检查最近成功配准年龄、初始化状态、连续失败次数，以及扫描/里程计年龄；禁止用缓存 fitness 和里程计 delay 代替配准健康 |
 | 设备命令 | 固定 SDK 网卡、域、速度单位和有效期；检查每次请求结果 |
 | 异常 | 输入超时、定位失效、接管、关闭使能后停止自主输出并按约定停止 |
 | 断链 | 核实机器人端命令过期行为；PC2 自身 watchdog 无法在断网后送达停止请求 |
@@ -738,7 +704,7 @@ Nav2 输出期望平面速度，通常包括前后、横向和偏航速度。速
 | 接管 | 遥控器优先级和退出自主模式方式必须经现场验证 |
 | 记录 | 输入速度、实际发送值、使能原因、SDK 返回值和机体反馈 |
 
-可沿用仿真的 `/cmd_vel_nav` 和 `/g1/nav_enable` 命名，但接口同名不代表现有 IPC 桥已经能控制真机。
+`scripts/simulation/g1_command_bridge.py` 只连接仿真 IPC，不可用于真机。历史 SDK 联测和运动结果见[历史行走记录](2026-11-10_g1_autonomous_walk_plan.md)；记录中的旧桥和旧启动参数已经退出当前架构。
 
 ### 9.3 分阶段验证桥
 
@@ -746,21 +712,15 @@ Nav2 输出期望平面速度，通常包括前后、横向和偏航速度。速
 
 断链、进程退出、定位丢失和取消目标应分别验证并保留状态记录。不要直接照搬 SDK 的任意动作示例；示例可能附带模式切换或持续运动行为。
 
-**本章通过条件：** 速度桥有实现、配置、状态反馈和现场测试记录；每条停止路径实际有效。本文当前没有可启动的真机桥，因此没有“运行某个脚本即可完成本章”的命令。
+**本章通过条件：** 本轮速度桥有明确的源码、配置、状态反馈和现场测试记录，每条停止路径实际有效。仅启动候选速度链或读取 SDK 返回值不能关闭现场验收项。
 
 ## 10. 完整真机导航部署与验收
 
-### 10.1 创建真机独立入口
+### 10.1 使用现有实机入口
 
-现有 `start_g1_navigation.sh` 检查仿真进程，`g1_navigation.launch.py` 及参数文件含仿真时间配置。真机应新增独立入口，保留现有仿真默认值，集中提供：
+实时定位使用 `04_robot_ready.sh localize`，网页规划使用 `05_web_navigation.sh`；完整命令见[实机部署路线](../docs/WORKFLOWS.md#实机部署路线)。两者显式使用现场地图、系统时间和实机参考点。`start_g1_navigation.sh` 仍属于仿真底层入口。
 
-- 实机地图路径、定位配置、传感器配置和安装 TF。
-- 所有相关节点的 `use_sim_time=false`，不依赖仿真 `/clock`。
-- Nav2 的真机参数、生命周期管理和速度话题重映射。
-- 第 9 章速度桥的网卡、域、限幅、时效和默认禁用门禁。
-- 各阶段独立启动和退出，避免定位尚未初始化就自动运动。
-
-建议将入口命名为独立的 real/real_robot 文件，但这只是命名建议，当前仓库不存在对应的已验收程序。
+Web 只请求路径，不启动控制器、局部代价地图、行为树或实机速度输出。下方涉及运动的验收项需在另行实现并按第 9 章验证控制链后执行。重启前按[进程预检](../docs/WORKFLOWS.md#启动前的进程预检)检查对应阶段，避免旧会话和新节点混用。
 
 ### 10.2 配置不能只看最大速度
 
@@ -781,7 +741,7 @@ Nav2 输出期望平面速度，通常包括前后、横向和偏航速度。速
 每步通过后再进入下一步，所有终端使用同一实机配置。
 
 1. 现场人员确认机体状态、遥控接管与停止手段，按第 0.2 节落实保护方案，明确停止负责人，启动传感器。
-2. 先启动第 7 章要求的安装 TF，确认可查询；再启动 FAST-LIO 和地图定位，保持自主速度禁用，检查定位节点实际查询结果，完成第 7 章检查。
+2. 按第 7 章启动持续定位入口，核对现场安装外参、初始对齐和 TF 发布权，保持自主速度禁用，完成定位检查。
 3. 启动其余真机 TF/里程计适配和障碍处理，避免重复发布已启动的安装 TF，完成第 8 章检查。
 4. 启动地图服务器与 Nav2，确认生命周期、栅格和代价地图。
 5. 在速度桥仍禁用时请求规划，检查起终点、通道和路径。此阶段只评价规划，不把因禁用执行产生的导航超时当作运动失败。
@@ -861,7 +821,7 @@ free -h
 df -h
 ```
 
-- **备选 x86_64：** 按[通用部署笔记](g1_real_robot_slam_notes.md)第 4 章核对系统与动态库；同架构不保证二进制兼容。
+- **备选 x86_64：** 按[附录 B.3](#b3-x86humble-环境差异)核对系统与动态库；同架构不保证二进制兼容。
 - **本机 ARM64：** 已用 Foxy 与 ARM64 库构建驱动和 FAST-LIO。Open3D、定位和 Nav2 按实际发行版与 ABI 单独验证。
 
 部署要点：
@@ -909,7 +869,7 @@ Ubuntu 的三个 Bash 终端都加载本机工作区，使用同一个域：
 export G1_REPO="$HOME/FAST_LIO_LOCALIZATION_HUMANOID"
 export G1_DATA="$HOME/g1_real_data"
 export ROS_DOMAIN_ID=193 ROS_LOCALHOST_ONLY=1
-source "$G1_REPO/scripts/walking_env.sh"
+source "$G1_REPO/scripts/env/walking_env.sh"
 ```
 
 1. 终端一启动 FAST-LIO，关闭 PCD 保存。
@@ -937,7 +897,7 @@ source "$G1_REPO/scripts/walking_env.sh"
 
 ### B.1 外部服务器
 
-切换条件、布线和单一接收端要求统一见第 3.3 节；仅在 PC2 依赖或持续负载不满足时启用。按[通用部署笔记](g1_real_robot_slam_notes.md)第 4 章在服务器核对系统、构建、动态库和数据目录，不复制 PC2 的构建产物，也不因 x86_64 架构相同跳过依赖检查。
+切换条件、布线和单一接收端要求统一见第 3.3 节；仅在 PC2 依赖或持续负载不满足时启用。按本附录 B.3 在服务器核对系统、构建、动态库和数据目录，不复制 PC2 的构建产物，也不因 x86_64 架构相同跳过依赖检查。
 
 切换后停止 PC2 上的驱动和算法，确认雷达目标 IP 与服务器网卡一致；运动控制主机切换还需重新确认 SDK 网卡、控制权和停止路径。将切换前后配置、代码版本和地图校验值归档。
 
@@ -946,6 +906,26 @@ source "$G1_REPO/scripts/walking_env.sh"
 两种用途统一见第 3.4 节：只运行 RViz 时按附录 A 设置跨主机 ROS；承担算力时按第 4 章重新准备完整环境。不要把仅供查看的终端默认为控制主机。
 
 笔记本另行检查供电、休眠策略、USB 网卡、散热及持续负载；GPU 型号不作为 FAST-LIO 和定位性能的验收依据。
+
+### B.3 x86/Humble 环境差异
+
+Ubuntu x86_64 主机使用 ROS 2 Humble，PC2 使用 ARM64/Foxy；二进制、Open3D 和 Livox SDK 均在目标主机构建，不复制另一架构的 `install/` 或 `.deps` 运行库。依赖来源与构建参数见[环境配置第 3 节](../docs/CONFIGURATION.md#3-初始化依赖与构建)，远程构建按该页的后台日志与进度检查方法执行。
+
+如果只处理实机数据，不需要构建或运行 MuJoCo 行走控制器。当前 `setup_g1_local_deps.sh` 会一并准备仿真 Python 依赖，但构建不会启动控制器。运行实机输入时仍选实机入口与独立域：
+
+```bash
+export G1_REPO="$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID"
+export G1_DATA="$HOME/ldy/g1_real_data"
+export ROS_DISTRO=humble ROS_DOMAIN_ID=223 ROS_LOCALHOST_ONLY=1
+source "$G1_REPO/scripts/env/walking_env.sh"
+mkdir -p "$G1_DATA/config" "$G1_DATA/bags" "$G1_DATA/maps" "$G1_DATA/records"
+ros2 pkg prefix fast_lio
+ros2 pkg prefix open3d_loc
+```
+
+`walking_env.sh` 清理外部 overlay，并加载所选系统 ROS 和本仓库安装副本；所有采集、回放与定位终端必须保持相同环境和消息版本。驱动默认使用仓库固定版本的 Livox 源码，不再维护另一份 `tmp/g1_real_ws` 驱动工作区。
+
+外部机器若直接接收雷达 UDP，先确认唯一接收端和目标 IP；若只做 SSH、远程桌面或离线处理，不需进入雷达网段。跨主机 RViz 需要另外统一域、DDS、QoS 和网络，不能继续套用本机回环配置。
 
 ## 附录 C：从仿真迁移时保留与重做的内容
 
@@ -978,11 +958,11 @@ source "$G1_REPO/scripts/walking_env.sh"
 | `FAST_LIO/src/laserMapping.cpp` | 实际话题/frame、地图保存与 TF 发布 |
 | `FAST_LIO/src/IMU_Processing.hpp` | 初始化和 IMU 处理 |
 | `open3d_loc/src/global_localization.cpp` | 初值语义、配准指标、定位和 TF |
-| `open3d_loc/launch/open3d_loc_g1.launch.py` | 历史 G1 定位入口和静态关系 |
-| `scripts/export_g1_map.py` | 投影、空闲区域假设和地图元数据 |
-| `scripts/g1_nav_tf.py` | 仿真平面化逻辑，仅供真机设计参考 |
+| `scripts/real_robot/04_robot_ready.sh`、`open3d_loc/launch/g1_walking_localization.launch.py` | 实机持续定位入口与共享定位实现 |
+| `scripts/mapping/export_g1_map.py` | 投影、空闲区域假设和地图元数据 |
+| `scripts/simulation/g1_nav_tf.py` | 仿真平面化逻辑，仅供真机设计参考 |
 | `navigation/g1_nav2_params.yaml` | 仿真 Nav2 参数起点 |
-| `scripts/walking_env.sh` | Foxy/Humble 运行环境与域设置 |
+| `scripts/env/walking_env.sh` | Foxy/Humble 运行环境与域设置 |
 | `.deps/src/unitree_sdk2/include/unitree/robot/g1/loco/g1_loco_client.hpp` | 本地固定版本高层控制接口 |
 
 外部资料：2026-11-04 核实阶段查阅了 Livox 和 Unitree 官方仓库；Nav2 TF 指南访问未成功，Nav2 外链及 Humble 适用性尚待复核。[Livox 官方驱动说明](https://github.com/Livox-SDK/livox_ros_driver2)用于核对驱动格式与配置入口；[Nav2 首次配置指南](https://docs.nav2.org/rolling/configuration_and_development/first_time_robot_setup_guide/)用于整体接口；[Unitree 官方 G1 LocoClient](https://github.com/unitreerobotics/unitree_sdk2/blob/main/include/unitree/robot/g1/loco/g1_loco_client.hpp)用于控制接口阅读。在线 main/rolling 会变化，操作以本机固定版本及现场设备支持范围为准。开源许可和二进制分发范围按各组件固定版本的许可证核对，本文不使用“整套完全开源”的概括。

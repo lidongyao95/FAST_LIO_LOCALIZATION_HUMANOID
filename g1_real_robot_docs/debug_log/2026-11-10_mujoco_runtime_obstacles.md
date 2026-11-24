@@ -8,14 +8,14 @@
 
 ```bash
 export ROS_DOMAIN_ID=153
-./scripts/start_walking_sim.sh --moving-obstacle --fixed-obstacles 3
+./scripts/simulation/start_walking_sim.sh --moving-obstacle --fixed-obstacles 3
 ```
 
 随后分别启动 `start_g1_controller.sh`、`start_g1_localization.sh show_rviz:=false` 和 `start_g1_navigation.sh`，均在 `scripts/` 下。4322 上本次使用用户确认的 `DISPLAY=:0`，在该桌面核对两个窗口，并用 `nvidia-smi` 核对 RViz 和 MuJoCo 进程。
 
 - 移动障碍为红色薄板，X 向厚 2 cm，Y 向宽 50 cm，高 1.5 m。它按仿真时间以 0.2 m/s 沿 Y 轴往返。未启用移动预设或自定义路线时，原有 `/g1/obstacle` 仍可放入静止方块。
 - 固定障碍为红橙色方块，最多三个，`--fixed-obstacles N` 指定启动时放入预设中的前 N 个。激活后，几何体可以参与 MuJoCo 碰撞和雷达射线检测。
-- [场景生成](../../scripts/g1_mujoco_sensors.py)创建几何体，[仿真节点](../../scripts/g1_walking_sim.py)管理放入、移除和移动。移动位置可从 `/g1/obstacle_pose` 读取。
+- [场景生成](../../scripts/simulation/g1_mujoco_sensors.py)创建几何体，[仿真节点](../../scripts/simulation/g1_walking_sim.py)管理放入、移除和移动。移动位置可从 `/g1/obstacle_pose` 读取。
 
 ```bash
 export ROS_DOMAIN_ID=153
@@ -24,7 +24,7 @@ ros2 service call /g1/obstacle std_srvs/srv/SetBool "{data: true}"
 ros2 service call /g1/fixed_obstacle_1 std_srvs/srv/SetBool "{data: true}"
 ```
 
-将 `true` 改为 `false` 即可移除，其他固定障碍用 `/g1/fixed_obstacle_2` 和 `/g1/fixed_obstacle_3`。重启仿真后控制器从 Passive 启动。发目标前执行 `./scripts/g1_operator.sh prepare` 和 `./scripts/g1_operator.sh enable-nav`，确认 `controller_mode=3`、`released=true`、`nav_ready=true`，再用 RViz 的 **Nav2 Goal**。
+将 `true` 改为 `false` 即可移除，其他固定障碍用 `/g1/fixed_obstacle_2` 和 `/g1/fixed_obstacle_3`。重启仿真后控制器从 Passive 启动。发目标前执行 `./scripts/simulation/g1_operator.sh prepare` 和 `./scripts/simulation/g1_operator.sh enable-nav`，确认 `controller_mode=3`、`released=true`、`nav_ready=true`，再用 RViz 的 **Nav2 Goal**。
 
 ## 为什么没有绕开
 

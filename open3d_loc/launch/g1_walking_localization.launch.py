@@ -1,12 +1,11 @@
 """Start LIO and 3-D global localization against the walking MuJoCo scene.
 
-Defaults target the MuJoCo scene. On the real robot pass ``start_lio:=false``
-(the LIO session and its TF are already running), ``use_sim_time:=false``,
-``publish_motion_tf:=true`` and the measured initial pose.
+Defaults target the MuJoCo scene. For real FAST-LIO use ``real_robot:=true``,
+``start_lio:=false``, ``use_sim_time:=false`` and the measured initial alignment.
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, ExecuteProcess
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -19,6 +18,7 @@ def generate_launch_description():
     map_ply=LaunchConfiguration('map_ply')
     show_rviz=LaunchConfiguration('rviz')
     start_lio=LaunchConfiguration('start_lio')
+    real_robot=LaunchConfiguration('real_robot')
     use_sim_time=ParameterValue(LaunchConfiguration('use_sim_time'),value_type=bool)
     publish_motion_tf=ParameterValue(LaunchConfiguration('publish_motion_tf'),value_type=bool)
     keys=('initial_x','initial_y','initial_z','initial_roll','initial_pitch','initial_yaw')
@@ -37,9 +37,11 @@ def generate_launch_description():
                               description='Sim clock; pass false on the real robot'),
         DeclareLaunchArgument('start_lio',default_value='true',
                               description='Include FAST-LIO; pass false when it already runs'),
+        DeclareLaunchArgument('real_robot',default_value='false',
+                              description='Use FAST-LIO body TF without the simulated base or LiDAR TF'),
         DeclareLaunchArgument('lio_config_file',default_value='g1_walking.yaml'),
         DeclareLaunchArgument('publish_motion_tf',default_value='false',
-                              description='Publish map -> odom from registration results'),
+                              description='Publish additional map -> motion_link TF'),
         DeclareLaunchArgument('loc_frequence',default_value='0.5',
                               description='Registration period in seconds; smaller publishes map -> odom faster'),
         *[DeclareLaunchArgument(k,default_value=v) for k,v in
@@ -75,9 +77,10 @@ def generate_launch_description():
         Node(package='tf2_ros',executable='static_transform_publisher',name='base_link_to_motion_link',
              arguments=['0','0','0','0','0','0','base_link','motion_link']),
         Node(package='tf2_ros',executable='static_transform_publisher',name='imu_link_to_lidar_link',
+             condition=UnlessCondition(real_robot),
              arguments=['0','0','0.45','0','0','0','imu_link','lidar_link']),
-        ExecuteProcess(cmd=['/usr/bin/python3',PathJoinSubstitution([repo,'scripts/g1_nav_tf.py']),
+        ExecuteProcess(cmd=['/usr/bin/python3',PathJoinSubstitution([repo,'scripts/simulation/g1_nav_tf.py']),
                             '--ros-args','-p',['use_sim_time:=',LaunchConfiguration('use_sim_time')]],
-                       output='screen'),
+                        condition=UnlessCondition(real_robot),output='screen'),
     ]
     return LaunchDescription(actions)

@@ -46,8 +46,8 @@
 
 ### 代码与复现说明
 
-- [网页后端](../../scripts/g1_nav_web/server.py) 新增 `--robot-frame`，默认保留 `base_footprint`。实机用 `body`。订阅 `/cloud_registered_body_1`，按点云时间查询地图 TF，以 0.4–8 m 和地图系高度 0.15–1.8 m 筛选，按 0.1 m 平面格抽稀，经 `/api/obstacles` 输出。数据超过 2 秒不再返回。
-- [网页前端](../../scripts/g1_nav_web/index.html) 新增独立紫色雷达图层开关。蓝色机器人、橙色目标、绿色规划路径和红橙色全局代价沿用原色。雷达点表示近期观测，代价地图表示规划器使用的融合栅格。
+- [网页后端](../../scripts/real_robot/web/server.py) 新增 `--robot-frame`，默认保留 `base_footprint`。实机用 `body`。订阅 `/cloud_registered_body_1`，按点云时间查询地图 TF，以 0.4–8 m 和地图系高度 0.15–1.8 m 筛选，按 0.1 m 平面格抽稀，经 `/api/obstacles` 输出。数据超过 2 秒不再返回。
+- [网页前端](../../scripts/real_robot/web/index.html) 新增独立紫色雷达图层开关。蓝色机器人、橙色目标、绿色规划路径和红橙色全局代价沿用原色。雷达点表示近期观测，代价地图表示规划器使用的融合栅格。
 - [导航 launch](../../open3d_loc/launch/g1_navigation.launch.py) 在仅规划模式支持 `robot_frame:=body`，只覆盖全局代价地图的机体参考帧。启动步骤见[运行手册](../g1_pc2_live_nav_web_runbook.md)。
 - 连续配准粗测使用原 PCD 的 XY，按 `z′ = 0.078349821x + 0.006797867y + 0.996902764z + 1.347228408` 转换 Z，使用同一 FAST-LIO 会话静止对齐结果作为 `initialpose`。Open3D 的欧拉角参数以度计，旋转组合为 Rx·Ry·Rz。诊断参数为 `threshold_fitness_init=0.50`、`threshold_fitness=0.50`、`loc_frequence=0.5`，点云地图话题重映射到 `/rough_loc/map_cloud`，避免与 Nav2 的 `/map` 冲突。
 - Open3D 使用单位安装外参并关闭运动 TF 发布。切换时停掉旧的 `map → camera_init` 发布器，补上单位 `odom → camera_init`，由 Open3D 独占 `map → odom`。这部分是临时运行配置。绝对定位精度、真实外参与自主走行仍待验收。
@@ -88,12 +88,12 @@ R=$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID
 S=$HOME/unitree_sdk2
 mkdir -p /tmp/g1-loco-build
 g++ -O2 -std=c++17 -I$R/scripts -I$S/include -I$S/thirdparty/include/ddscxx \
-  -o /tmp/g1-loco-build/g1_loco_zero_session $R/scripts/g1_loco_zero_session.cpp \
+  -o /tmp/g1-loco-build/g1_loco_zero_session $R/scripts/real_robot/g1_loco_zero_session.cpp \
   -L$S/lib/aarch64 -lunitree_sdk2 \
   -L$S/thirdparty/lib/aarch64 -lddscxx -lddsc -lpthread \
   -Wl,-rpath,$S/thirdparty/lib/aarch64
 g++ -O2 -std=c++17 -I$S/include -I$S/thirdparty/include/ddscxx \
-  -o /tmp/g1-loco-build/g1_loco_preflight $R/scripts/g1_loco_preflight.cpp \
+  -o /tmp/g1-loco-build/g1_loco_preflight $R/scripts/real_robot/g1_loco_preflight.cpp \
   -L$S/lib/aarch64 -lunitree_sdk2 \
   -L$S/thirdparty/lib/aarch64 -lddscxx -lddsc -lpthread \
   -Wl,-rpath,$S/thirdparty/lib/aarch64
@@ -106,7 +106,7 @@ printf '#!/bin/sh\nexec env LD_LIBRARY_PATH=%s/thirdparty/lib/aarch64 /tmp/g1-lo
 chmod +x /tmp/g1-loco-build/g1_loco_session.sh
 ```
 
-`/tmp` 下的产物重启即失，正式验收前应改放到仓库外的固定目录并记录 SHA-256。`scripts/g1_loco_sender_session.hpp` 仓库里已有，但 PC2 侧内容较新，改动后记得反向同步回 Mac。
+`/tmp` 下的产物重启即失，正式验收前应改放到仓库外的固定目录并记录 SHA-256。`scripts/real_robot/g1_loco_sender_session.hpp` 仓库里已有，但 PC2 侧内容较新，改动后记得反向同步回 Mac。
 
 只读预检 `g1_loco_preflight eth0` 返回 `fsm_id_result=0 fsm_id=0 fsm_mode_result=0 fsm_mode=0`。查询成功但 `fsm_id` 不是 802，速度会话会立刻回 `control_revoked` 并拒绝发速，这一条可用于开跑前的模式核对。
 
@@ -133,7 +133,7 @@ chmod +x /tmp/g1-loco-build/g1_loco_session.sh
 
 在 4322/Humble 上启动 `global_localization_node` 时先报 `liblapacke.so.3: cannot open shared object file`，补 `anaconda3/envs/twin/lib` 后接着报 `liblzf.so.1`，看起来像系统缺包。
 
-实际不是缺包，而是缺库搜索路径。4322 的 Open3D 不走系统安装，`build/open3d_loc/CMakeCache.txt` 里 `Open3D_DIR` 指向仓库内的本地前缀 `.deps/root/usr/lib/x86_64-linux-gnu/cmake/Open3D`；`scripts/setup_g1_local_deps.sh` 已经用 `apt-get download` + `dpkg-deb -x`（无需 root）把 `libopen3d0.14`、`libfilament1.9`、`liblapacke`、`liblzf1`、`libstb0`、`libtinyobjloader1`、`libtmglib3` 解包到同一目录，`.deps/debs` 下还留着这些 deb 缓存。缺的只是运行时把这个目录放进 `LD_LIBRARY_PATH`。
+实际不是缺包，而是缺库搜索路径。4322 的 Open3D 不走系统安装，`build/open3d_loc/CMakeCache.txt` 里 `Open3D_DIR` 指向仓库内的本地前缀 `.deps/root/usr/lib/x86_64-linux-gnu/cmake/Open3D`；`scripts/env/setup_g1_local_deps.sh` 已经用 `apt-get download` + `dpkg-deb -x`（无需 root）把 `libopen3d0.14`、`libfilament1.9`、`liblapacke`、`liblzf1`、`libstb0`、`libtinyobjloader1`、`libtmglib3` 解包到同一目录，`.deps/debs` 下还留着这些 deb 缓存。缺的只是运行时把这个目录放进 `LD_LIBRARY_PATH`。
 
 判据：`LD_LIBRARY_PATH=.deps/root/usr/lib/x86_64-linux-gnu ldd install/open3d_loc/lib/open3d_loc/global_localization_node | grep -c "not found"` 返回 0。
 
@@ -143,7 +143,7 @@ chmod +x /tmp/g1-loco-build/g1_loco_session.sh
 export LD_LIBRARY_PATH="$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID/.deps/root/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
 ```
 
-这条提示已加进 `scripts/setup_g1_local_deps.sh` 的输出，避免下次又从 `liblapacke`、`liblzf` 逐个试。
+这条提示已加进 `scripts/env/setup_g1_local_deps.sh` 的输出，避免下次又从 `liblapacke`、`liblzf` 逐个试。
 
 ### 首次带动力指令的结果
 
@@ -181,7 +181,7 @@ export LD_LIBRARY_PATH="$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID/.deps/root/usr/
 同轮排查另外三个问题：
 
 - **网页点云 QoS 不匹配**：`/cloud_registered_body_1` 由 FAST-LIO 以 RELIABLE 发布，网页按 `qos_profile_sensor_data`（best-effort）订阅，实测 8 秒收到 0 帧，`/api/obstacles` 因此返回 `null`。改为默认可靠 QoS 后连续 12 次采样 485–525 点。
-- **重复静态 TF**：反复重启定位 launch 用 `kill`（SIGTERM）而非 SIGINT，子进程不退出，PC2 上同时存在 3 组 `odom → camera_init` 等静态发布器，`map` 时有时无。已清理；并新增 `scripts/g1_cleanup_stale.sh`（支持 `--dry-run`，按 `ROS_DOMAIN_ID` 过滤），`walking_env.sh` 里以 `G1_CLEAN_STALE=1` 选择性触发。
+- **重复静态 TF**：反复重启定位 launch 用 `kill`（SIGTERM）而非 SIGINT，子进程不退出，PC2 上同时存在 3 组 `odom → camera_init` 等静态发布器，`map` 时有时无。已清理；并新增 `scripts/env/g1_cleanup_stale.sh`（支持 `--dry-run`，按 `ROS_DOMAIN_ID` 过滤），`walking_env.sh` 里以 `G1_CLEAN_STALE=1` 选择性触发。
 - **RViz 参数名**：`g1_walking_localization.launch.py` 原来只声明 `show_rviz`，传 `rviz:=false` 既不报错也不生效，于是多起一个 RViz。统一改名为 `rviz` 并默认 `false`，与 `g1_navigation`、`g1_mujoco` 一致。
 
 **地图 z 的更正**：PC2 所用 `clean.pcd` 的地面在 z ≈ −1.1（p50），点云坐标原点在相机高度，因此 Open3D 输出的 `odom2map` z = −0.06 是**正确**的，不存在此前猜测的 1.37 m 垂直漂移；扫描点里地面点占 53.6%，竖直方向本来就有充分约束。出错的是早前的静止对齐把 `z` 取了 +1.305（等于把地面搬到 0），以及网页按绝对 `map` z 做 0.15–1.8 m 过滤——现在改为相对机体的高度带后与地面位置自洽。
@@ -202,4 +202,4 @@ StopMove=0
 
 但 2 秒只走了 8 cm，按 0.3 m/s 应有约 0.6 m，等效速度约 0.04 m/s；这与 Nav2 闭环跑 14 秒只挪 4 cm 是同一量级。因此「机体不动」的原因在物理侧而非软件侧：吊架绷紧、脚掌没有真正承重，机器人只能小幅挪动。下次带动力测试前应放松吊架让脚掌落地，再复跑同一 0.6 m 目标。
 
-探针源码已入库：`scripts/g1_loco_velocity_probe.cpp`，支持 `velocity`（默认）、`move`、`fsm` 三种模式，编译命令写在文件头，链接参数与上文 SDK 会话一致；运行前不要 source ROS，否则会加载 Foxy 的 CycloneDDS 0.7 并报 `undefined symbol: ddsi_sertype_v0`。编译产物仍在 `/tmp/g1-loco-build/`，重启即失。
+探针源码已入库：`scripts/real_robot/g1_loco_velocity_probe.cpp`，支持 `velocity`（默认）、`move`、`fsm` 三种模式，编译命令写在文件头，链接参数与上文 SDK 会话一致；运行前不要 source ROS，否则会加载 Foxy 的 CycloneDDS 0.7 并报 `undefined symbol: ddsi_sertype_v0`。编译产物仍在 `/tmp/g1-loco-build/`，重启即失。

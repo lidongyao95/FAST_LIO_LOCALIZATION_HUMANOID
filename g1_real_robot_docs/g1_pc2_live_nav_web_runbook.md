@@ -1,5 +1,10 @@
 # G1 PC2 实机逐步运行 · 静止自动对齐与仅规划
 
+日常运行优先走[实机部署路线](../docs/WORKFLOWS.md#实机部署路线)：`04_robot_ready.sh localize`
+启动持续配准，再用 `05_web_navigation.sh` 启动网页。下文保留静止自动求初值、静态 TF 和逐组件排障方法。
+静态对齐与 Open3D 持续配准二选一负责地图对齐；切换到持续配准前停止旧静态发布器。
+本页的 `hang_A_02_plaster_preview` 是历史数据目录名，不表示正在运行 MuJoCo。
+
 适用 PC2/Foxy，机器人在录制区域内静止。每个 PC2 终端先加载下列环境。域 223 是本次实机诊断域，启动前确认没有旧回放、定位或 TF 发布器占用它。控制和速度桥保持隔离。
 
 ```bash
@@ -46,7 +51,7 @@ ros2 run fast_lio fastlio_mapping --ros-args \
   -p "debug_log_dir:=$logs"
 ```
 
-第三个 PC2 终端可用 `python3 "$REPO/scripts/probe_topics.py" lidar --seconds 8`
+第三个 PC2 终端可用 `python3 "$REPO/scripts/checks/probe_topics.py" lidar --seconds 8`
 核对点云，对 IMU 把 `lidar` 换为 `imu`。FAST-LIO 日志应进入 IMU 初始化完成和地图树初始化。
 从这里到复验结束保持 FAST-LIO 进程持续运行。本轮判据：点云 10 Hz、每帧约 2 万点，IMU 200 Hz。
 
@@ -60,7 +65,7 @@ Mac Python 环境需兼容版本的 NumPy/SciPy。下面的 `local_repo` 指向 
 
 ```bash
 local_repo=/Users/lidongyao/Desktop/code/SLAM/FAST_LIO_LOCALIZATION_HUMANOID
-tools="$local_repo/scripts/g1_nav_web/static_alignment"
+tools="$local_repo/scripts/real_robot/web/static_alignment"
 work=$(mktemp -d)
 cd "$work"
 scp unitree@192.168.123.164:ldy/g1_real_data/maps/hang_A_02_plaster_preview/clean.pcd .
@@ -79,11 +84,11 @@ SciPy 会提示所需的 NumPy 版本区间（例如 NumPy 2.5.1），该告警�
 
 ## 4. 发布静止预览 TF
 
-在独立 PC2 终端运行，替换尖括号为本次 JSON 输出，角度均为弧度。
+以下为命令模板。在独立 PC2 终端中，将六个尖括号项替换为本次 JSON 输出后执行，角度均为弧度。
 只发布地图到局部里程计的初始对齐。FAST-LIO 持续发布 `camera_init → body`，
 网页和仅规划使用合成后的 `map → body`。
 
-```bash
+```text
 ros2 run tf2_ros static_transform_publisher <x> <y> <z> <yaw> <pitch> <roll> map camera_init
 ```
 
@@ -98,13 +103,15 @@ python3 "$tools/verify.py"
 FAST-LIO 重启或跟踪丢失后，重新采集和求解。此预览未接入持续地图配准，累计误差需要另行验证。
 
 顺序约束：`map → camera_init` 必须先于步骤 5 的 Nav2 生效。缺 `map → body` 时
-`global_costmap` 无法完成激活，`scripts/ensure_g1_nav_lifecycle.py` 超时后整个 launch 以
+`global_costmap` 无法完成激活，`scripts/navigation/ensure_g1_nav_lifecycle.py` 超时后整个 launch 以
 `RuntimeError: G1 Nav2 lifecycle startup failed (exit 1)` 退出，日志末尾是向 `map_server` 和
 `planner_server` 发 `SIGINT`。已经退出的 launch 不会自愈，TF 生效后必须重新执行步骤 5。
 
 ## 5. 启动仅规划和网页
 
-在 PC2 启动只含地图和全局规划的 Nav2。先在同一环境确认
+在 PC2 先执行 `scripts/env/g1_cleanup_stale.sh --check --scope navigation`；若有冲突，先结束旧会话，终端已丢失时按[进程预检](../docs/WORKFLOWS.md#启动前的进程预检)显式清理。此范围保留雷达与定位。
+
+启动只含地图和全局规划的 Nav2；launch 同时启动独立规划障碍输入节点。先在同一环境确认
 `ros2 run tf2_ros tf2_echo map body` 已能输出变换，否则按上一条会直接退出：
 
 ```bash
@@ -118,13 +125,13 @@ ros2 launch "$REPO/open3d_loc/launch/g1_navigation.launch.py" \
 ssh -t -o ExitOnForwardFailure=yes -L 127.0.0.1:18085:127.0.0.1:18085 unitree@192.168.123.164
 ```
 
-本地端口必须与网页服务的 `--port` 一致。换成 18086 之类时服务端 `Host` 白名单只认
-`127.0.0.1:18085` 和 `localhost:18085`，会直接返回 403 `Invalid host`。
+本地端口应与网页服务的 `--port` 一致。当前服务按启动端口生成 `Host` 白名单，
+接受 `127.0.0.1:<port>` 和 `localhost:<port>`；改端口时同步修改服务参数、SSH 转发和浏览器地址。
 
 在该 SSH 会话加载开头的 PC2 环境后运行：
 
 ```bash
-python3 "$REPO/scripts/g1_nav_web/server.py" --port 18085 --robot-frame body --demo '实机雷达 · 连续里程计预览'
+python3 "$REPO/scripts/real_robot/web/server.py" --port 18085 --robot-frame body --demo '实机雷达 · 连续里程计预览'
 ```
 
 Nav2 侧判据是日志出现 `All G1 Nav2 lifecycle nodes active`，网页侧判据是
@@ -150,6 +157,8 @@ Mac 可查询 `/api/state` 的 `costmap` 版本是否变化。结束时在各启
 
 正式外参、连续定位、实机走行、停止和接管的验收见[实机部署指南](g1_real_robot_slam_pc2_b300_guide.md)。
 本手册截至静止对齐和仅规划。当天数据见[调试记录](debug_log/2026-11-10_pc2_live_nav_web.md)。
+
+网页“规划考虑实时障碍”控制实时点云是否参与全局规划；两个“显示”选项只影响画面。关闭后仍使用静态地图障碍，切换会清除旧路径并要求重新规划。状态由 Nav2 会话中的独立节点持有，重启 Web 保持原状态，新启 Nav2 会话默认开启。首次从旧版本升级需要结束旧 Nav2 和 Web，再启动本版；细节见[开关说明](../scripts/real_robot/web/README.md#实时障碍参与规划)。
 
 ## 已知地图下的连续定位
 

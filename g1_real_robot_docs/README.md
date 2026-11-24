@@ -1,6 +1,19 @@
 # G1 真机 SLAM 文档
 
-当前实机以 PC2 原生 Foxy 为部署基线。现场操作从 [PC2 单机与 B300 指南](g1_real_robot_slam_pc2_b300_guide.md) 开始，实测证据和历史变更见 [调试记录](debug_log/README.md)。[通用部署笔记](g1_real_robot_slam_notes.md) 保留外部 x86/Humble 路线。
+实机以 PC2 原生 Foxy 为部署基线。日常操作从[实机部署路线](../docs/WORKFLOWS.md#实机部署路线)开始：采集 → 导出并核对地图 → 持续定位 → Web 仅规划。Mac 是 SSH 与网页访问端，实时 ROS 链运行在 PC2。
+
+| 需要解决的问题 | 阅读入口 |
+| --- | --- |
+| 首次在 PC2 安装、接入传感器与安排现场采集 | [PC2 单机与 B300 指南](g1_real_robot_slam_pc2_b300_guide.md) |
+| 按现有统一脚本采集、持续定位和打开网页 | [实机部署路线](../docs/WORKFLOWS.md#实机部署路线) |
+| 在 Ubuntu 中用实机点云预演虚拟 G1 导航 | [扫描场景预演](scan_mujoco_preview.md)，属于可选仿真检查 |
+| 在历史录包上复现建图或输入问题 | [离线回放](inverted_mid360.md) |
+| 单独排查静止初始对齐、TF 与 Web | [专项运行手册](g1_pc2_live_nav_web_runbook.md) |
+| 核对实机运动的待办与已测结果 | [自主行走计划与记录](2026-11-10_g1_autonomous_walk_plan.md) |
+
+**扫描场景预演仍使用虚拟传感器和仿真运动，离线回放则重用已录数据；二者都不等于 PC2 实时定位或实机行走。** 回到 PC2 要加载现场地图和实测初值，不能沿用仿真生成地图或仿真初始高度。
+
+以下状态按日期和设备保留为历史证据，不是当前进程或安装包清单。实测证据和变更见[调试记录](debug_log/README.md)；外部 x86/Humble 环境差异统一见[部署指南附录 B.3](g1_real_robot_slam_pc2_b300_guide.md#b3-x86humble-环境差异)。
 
 ## 真机验证状态（2026-11-04，第一台 G1）
 
@@ -64,9 +77,9 @@ Ubuntu 本地回放与实时查看见 [部署指南附录 A.1](g1_real_robot_sla
 
 以上为本地离线/仿真流程，不改变上表真机验收状态。
 
-## 已弃用方案
+## 历史官方栈试验
 
-本项目**不使用 G1 官方 SLAM 栈**（整机 PC1 上的 `unitree_slam`、`slam_mapping`/`slam_relocation` 等），建图、定位与导航统一采用本仓库的 FAST-LIO 方案。以下文档仅作为历史调研与排障记录保留，内容不再维护，结论不代表当前方案：
+本项目使用 FAST-LIO 路线。旧官方 SLAM 栈的操作指南已移除，其中 2026-11-04 的现场观测与静止试验原文保留为调试记录：
 
-- [G1 官方 SLAM 栈实战：平地建图与绕障导航](deprecated/g1_official_slam_obstacle_navigation.md)
+- [官方 SLAM 栈历史实测记录](debug_log/2026-11-04_official_slam_investigation.md)
 

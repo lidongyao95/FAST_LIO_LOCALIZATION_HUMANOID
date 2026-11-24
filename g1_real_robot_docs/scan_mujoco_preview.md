@@ -1,13 +1,31 @@
-# 真机扫描场景的 MuJoCo 与 RViz 导航
+# 实机点云生成场景后的 MuJoCo 导航预演
+
+这是[实机部署路线](../docs/WORKFLOWS.md#实机部署路线)中可选的地图预演，在 Ubuntu 仿真机运行。
+场景来源于实机点云；运行时的 G1、LiDAR、IMU 和运动全部由 MuJoCo 模拟。
+本流程不读取 PC2 的实时雷达，也不向真实 G1 发送速度。
+
+| 对比项 | 内置房间纯仿真 | 本页的实机点云预演 | PC2 实时定位与规划 |
+| --- | --- | --- | --- |
+| 环境来源 | 仓库定义的虚拟房间 | 已采集 PCD 的近似几何 | 当前真实现场 |
+| 运行时输入 | 虚拟 LiDAR/IMU | 在近似场景中重新生成的虚拟 LiDAR/IMU | 现场 MID-360 与 IMU |
+| 使用的地图 | 虚拟房间中 FAST-LIO 建图后导出 | 场景生成器另行输出的配套地图 | 经核对的现场点云图与二维底图 |
+| 目标执行 | 虚拟 G1 行走 | 虚拟 G1 行走 | 默认网页只规划；实际行走另验 |
+
+没有现场点云、只想跑通软件链时，用[纯仿真路线](../docs/WORKFLOWS.md#纯仿真路线)。
+已有录包、只想复现那段输入时，用[离线回放](inverted_mid360.md)；回放不会响应新目标改变轨迹。
+
+`02_mapping.sh export --plaster` 生成图片、表面点云和地面参数，**不生成可运行的 `scene.xml`**。
+本页第 2 节用 `g1_scan_scene.py` 单独生成场景。第 5 节则保留特定数据集的石膏版历史场景，
+使用实验脚本和 `world-*` 文件，不是通用 `scan_preview.sh` 的目录格式。
 
 本流程将已修正倒装方向的 PCD 转换为近似仿真场景，随后按
-[仓库正常启动顺序](../NAVIGATION_MANUAL.md#4-重启并加载生成地图)运行
+[仓库正常启动顺序](../docs/NAVIGATION_MANUAL.md#4-重启并加载生成地图)运行
 行走策略、FAST-LIO、Open3D 和 Nav2。MuJoCo 显示 G1 的物理运动，
 RViz 用于观察地图、定位和规划，并点击设置目的地及最终朝向。
 
 ## 1. 数据与模型范围
 
-本次输入为 `tmp/g1_real_data/replay/static_01_inverted.pcd`，
+下文以 `tmp/g1_real_data/replay/static_01_inverted.pcd` 为例，
 由静止录包离线建图获得，生成方法见[倒装补偿与回放](inverted_mid360.md)。
 原始录包和生成结果保留在本地，不随代码提交；其他机器需自行提供对应 PCD。
 依赖为现有 `.deps/venv` 的 MuJoCo、NumPy，以及仓库原有 ROS 导航环境。
@@ -24,13 +42,17 @@ RViz 用于观察地图、定位和规划，并点击设置目的地及最终朝
 `metadata.json` 的 `world_from_camera_init`，不会改写输入 PCD。
 仿真使用仓库原有合成传感器安装关系，而非真机安装标定。
 
+生成器输出的 `map.ply` 来自近似碰撞几何，`map.yaml` 将人工延伸地板视为空闲区。
+它们虽然与实机导出地图同名，却具有不同的来源、坐标和空闲区假设。
+请使用独立目录；回到 PC2 时加载实机地图，不直接部署这组仿真地图。
+
 ## 2. 生成场景和配对地图
 
 在仓库根目录执行；生成器只写资产并编译检查，不启动展示或导航进程：
 
 ```bash
-source scripts/walking_env.sh
-.deps/venv/bin/python scripts/g1_scan_scene.py \
+source scripts/env/walking_env.sh
+.deps/venv/bin/python scripts/mapping/g1_scan_scene.py \
   --pcd "$PWD/tmp/g1_real_data/replay/static_01_inverted.pcd"
 ```
 
@@ -51,7 +73,7 @@ XML 引用本机官方 G1 模型绝对路径，搬迁后需重新生成。
 可在启动前执行独立的稳定性、落球碰撞及离屏渲染检查：
 
 ```bash
-MUJOCO_GL=egl .deps/venv/bin/python scripts/check_g1_scan_scene.py --render
+MUJOCO_GL=egl .deps/venv/bin/python scripts/checks/check_g1_scan_scene.py --render
 ```
 
 输出 `validation.json`、`collision_validation.json` 和 `preview.png`。
@@ -60,30 +82,41 @@ MUJOCO_GL=egl .deps/venv/bin/python scripts/check_g1_scan_scene.py --render
 
 ## 3. 按正常顺序启动
 
+场景目录生成后，可从仓库根目录在一个终端启动。脚本使用该目录中的场景和两张地图，并复用纯仿真的控制器、定位和 Nav2 启动顺序。
+
+```bash
+./scripts/simulation/scan_preview.sh sim/generated/real_scan
+```
+
+该统一入口默认域为 74。若需另开终端查询状态，先导出相同的 `ROS_DOMAIN_ID` 再加载环境。
+导航就绪后在 RViz 点选目标，按第 4 节观察与停止。
+
+下方是另一种启动方式：分终端调试。先结束统一入口，再按下方步骤启动，不要叠加运行。
+
 所有终端都在仓库根目录，默认 `ROS_DOMAIN_ID=72`，直接执行 `ros2` 前先
-`source scripts/walking_env.sh`。若自行指定域，必须每个终端一致。
+`source scripts/env/walking_env.sh`。若自行指定域，必须每个终端一致。
 不要同时运行离线录包、旧的 FAST-LIO 或多个时钟发布者于相同域。
 每阶段按日志或状态确认就绪后再继续，避免仿真尚在加载就启动控制器导致 DDS 端口争用。
 
 终端 1，启动行走仿真，等待 `DDS mode: base held until /g1/release`：
 
 ```bash
-./scripts/start_walking_sim.sh --model-path "$PWD/sim/generated/real_scan/scene.xml"
+./scripts/simulation/start_walking_sim.sh --model-path "$PWD/sim/generated/real_scan/scene.xml"
 ```
 
 终端 2，启动控制器，等待 `FSM: Start Passive`：
 
 ```bash
-./scripts/start_g1_controller.sh
+./scripts/simulation/start_g1_controller.sh
 ```
 
 终端 3，启动原有 FAST-LIO/Open3D 定位并绑定三维地图：
 
 ```bash
-./scripts/start_g1_localization.sh \
+./scripts/simulation/start_g1_localization.sh \
   map_ply:="$PWD/sim/generated/real_scan/map.ply" \
   initial_x:=0.0 initial_y:=0.0 initial_z:=0.793 initial_yaw:=0.0 \
-  show_rviz:=false
+  rviz:=false
 ```
 
 这里的初始高度 0.793 m 属于官方仿真骨盆模型；不要用于真机。
@@ -92,22 +125,22 @@ MUJOCO_GL=egl .deps/venv/bin/python scripts/check_g1_scan_scene.py --render
 终端 4，检查定位和站立，再释放支架：
 
 ```bash
-./scripts/g1_operator.sh status
-./scripts/g1_operator.sh prepare
-./scripts/g1_operator.sh status
+./scripts/simulation/g1_operator.sh status
+./scripts/simulation/g1_operator.sh prepare
+./scripts/simulation/g1_operator.sh status
 ```
 
 确认 `controller_mode: 3`、`released: true`、`odom_fresh: true`，
 定位连续有效后，在终端 5 启动 Nav2 和唯一的导航 RViz：
 
 ```bash
-./scripts/start_g1_navigation.sh map_yaml:="$PWD/sim/generated/real_scan/map.yaml"
+./scripts/simulation/start_g1_navigation.sh map_yaml:="$PWD/sim/generated/real_scan/map.yaml"
 ```
 
 等待日志 `All G1 Nav2 lifecycle nodes active`，再在终端 4 开启运动门禁：
 
 ```bash
-./scripts/g1_operator.sh enable-nav
+./scripts/simulation/g1_operator.sh enable-nav
 ```
 
 确认 `nav_ready: true`。仿真真值仅用于验证，导航定位继续来自 FAST-LIO/Open3D。
@@ -121,7 +154,7 @@ MuJoCo 中 G1 同步运动。不要同时运行自动发目标测试，以免相
 停止导航：
 
 ```bash
-./scripts/g1_operator.sh stop
+./scripts/simulation/g1_operator.sh stop
 ```
 
 结束整次仿真时先停止导航，再依次 Ctrl-C 关闭终端 5、3、2、1。
@@ -142,7 +175,7 @@ MuJoCo 中 G1 同步运动。不要同时运行自动发目标测试，以免相
 在 4322 上使用 `~/ldy/hang-a02-filter-comparison/plaster-map/mujoco/` 中成套的
 `scene.xml`、`plaster.obj`、`world-cloud.ply`、`world-map.yaml` 和
 `world-map.pgm`。`trial.json` 保存仿真变换与试跑结果。场景 XML 引用 4322 的绝对路径。
-需要重建时，按[实验脚本说明](../scripts/hang_a02/README.md)运行 `trial.py`
+需要重建时，按[实验脚本说明](../scripts/experiments/hang_a02/README.md)运行 `trial.py`
 和 `navigation_assets.py`。后者将点云和二维图转换到仿真 world，定位和导航均使用转换后的文件。
 
 ### 启动与交接
@@ -162,16 +195,16 @@ scene="$HOME/ldy/hang-a02-filter-comparison/plaster-map/mujoco"
 
 | 顺序 | 命令 | 就绪判据 |
 |---|---|---|
-| 1 仿真 | `./scripts/start_walking_sim.sh --model-path "$scene/scene.xml" --start-x 3.987606 --start-y 5.249173` | MuJoCo 窗口显示石膏场景，日志出现 `DDS mode`。 |
-| 2 控制 | `./scripts/start_g1_controller.sh` | 日志出现 `FSM: Start Passive`。 |
-| 3 定位 | `./scripts/start_g1_localization.sh map_ply:="$scene/world-cloud.ply" initial_x:=3.987606 initial_y:=5.249173 initial_z:=0.793 initial_yaw:=0.0 show_rviz:=false` | Open3D 完成初始化且位姿持续更新。 |
-| 4 站立 | `./scripts/g1_operator.sh prepare` | `status` 返回 `controller_mode: 3`、`released: true`、`odom_fresh: true`。 |
-| 5 Nav2 | `./scripts/start_g1_navigation.sh map_yaml:="$scene/world-map.yaml" rviz:=false` | 日志出现 `All G1 Nav2 lifecycle nodes active`。 |
+| 1 仿真 | `./scripts/simulation/start_walking_sim.sh --model-path "$scene/scene.xml" --start-x 3.987606 --start-y 5.249173` | MuJoCo 窗口显示石膏场景，日志出现 `DDS mode`。 |
+| 2 控制 | `./scripts/simulation/start_g1_controller.sh` | 日志出现 `FSM: Start Passive`。 |
+| 3 定位 | `./scripts/simulation/start_g1_localization.sh map_ply:="$scene/world-cloud.ply" initial_x:=3.987606 initial_y:=5.249173 initial_z:=0.793 initial_yaw:=0.0 rviz:=false` | Open3D 完成初始化且位姿持续更新。 |
+| 4 站立 | `./scripts/simulation/g1_operator.sh prepare` | `status` 返回 `controller_mode: 3`、`released: true`、`odom_fresh: true`。 |
+| 5 Nav2 | `./scripts/simulation/start_g1_navigation.sh map_yaml:="$scene/world-map.yaml" rviz:=false` | 日志出现 `All G1 Nav2 lifecycle nodes active`。 |
 | 6 RViz | 见下方命令 | 显示石膏版配套二维图，导航目标工具可用。 |
-| 7 开启手动导航 | `./scripts/g1_operator.sh enable-nav` | `status` 返回 `nav_ready: true`。 |
+| 7 开启手动导航 | `./scripts/simulation/g1_operator.sh enable-nav` | `status` 返回 `nav_ready: true`。 |
 
 ```bash
-source scripts/walking_env.sh
+source scripts/env/walking_env.sh
 rviz_config="$scene/manual/Plaster-Navigation.rviz"
 if [ ! -s "$rviz_config" ]; then
   rviz_config="$PWD/open3d_loc/rviz_cfg/g1_navigation.rviz"
@@ -185,7 +218,7 @@ nvidia-smi | grep "$rviz_pid"
 
 默认 RViz 配置打开后可缩放并平移到地图坐标约 `(4.0, 5.25) m`。
 选择 **Nav2 Goal**，从机器人附近的空闲区开始，按住左键拖动设定朝向后松开。
-停止时运行 `./scripts/g1_operator.sh stop`，然后按 RViz、Nav2、定位、控制、仿真的顺序关闭。
+停止时运行 `./scripts/simulation/g1_operator.sh stop`，然后按 RViz、Nav2、定位、控制、仿真的顺序关闭。
 
 上次已在 4322 验证模拟定位、Nav2 激活、运动门禁和 `/navigate_to_pose` 服务端就绪，
 并确认 RViz 使用 RTX 4090。日志出现过代价地图因点云时间早于 TF 缓存而丢帧。

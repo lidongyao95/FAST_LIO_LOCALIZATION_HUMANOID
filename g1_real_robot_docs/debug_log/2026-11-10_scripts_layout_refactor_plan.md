@@ -1,5 +1,8 @@
 # scripts 目录重构计划
 
+本页保留 2026-11-10 的迁移设计与检查清单，其中的目标目录和迁移表不代表当前布局。
+2026-11-23 整理后的入口与职责以[脚本索引](../../scripts/README.md)为准，日常操作见[使用流程](../../docs/WORKFLOWS.md)。
+
 目标是把 `scripts/` 从「40 个平铺文件的杂物间」整理成按运行场景分层的目录。本文记录迁移计划与验收判据。
 
 按运行场景拆目录的方向合理。实施前最需要锁定的是共享环境脚本、源码与 ROS 安装副本的对应关系，以及远端现场修正。先迁移运行入口和直接引用，归档与历史入口清理单独评估。
@@ -61,25 +64,25 @@ scripts/
   hang_a02/                 保留现有实验目录，同步必要的导入路径
 ```
 
-不做的事：不改 `g1_nav_web/` 内部结构（现场手册已经引用 `scripts/g1_nav_web/server.py` 与 `static_alignment/*`，收益低风险高）；不把 `scripts/` 变成 ROS 包。由 `open3d_loc` 安装 launch，launch 再通过 `repo` 参数访问源码树。
+不做的事：不改 `g1_nav_web/` 内部结构（现场手册已经引用 `scripts/real_robot/web/server.py` 与 `static_alignment/*`，收益低风险高）；不把 `scripts/` 变成 ROS 包。由 `open3d_loc` 安装 launch，launch 再通过 `repo` 参数访问源码树。
 
 ## 4. 迁移映射
 
 | 旧路径 | 新路径 | 风险点 |
 | --- | --- | --- |
-| `scripts/g1_real_velocity_bridge.py` | `scripts/real/g1_real_velocity_bridge.py` | 更新 launch 路径，保留 basename 和生命周期冲突检查 |
-| `scripts/ensure_g1_nav_lifecycle.py` | `scripts/real/` | launch 109、131 行 |
-| `scripts/g1_nav_tf.py` | `scripts/real/` | `g1_walking_localization.launch.py:76` |
-| `scripts/probe_topics.py` | `scripts/real/` | 现场手册步骤 2 的命令 |
-| `scripts/replay_clock.py`、`record_g1_a_segment.sh` | `scripts/real/` | 仅文档引用，需改文档 |
+| `scripts/real_robot/g1_real_velocity_bridge.py` | `scripts/real/g1_real_velocity_bridge.py` | 更新 launch 路径，保留 basename 和生命周期冲突检查 |
+| `scripts/navigation/ensure_g1_nav_lifecycle.py` | `scripts/real/` | launch 109、131 行 |
+| `scripts/simulation/g1_nav_tf.py` | `scripts/real/` | `g1_walking_localization.launch.py:76` |
+| `scripts/checks/probe_topics.py` | `scripts/real/` | 现场手册步骤 2 的命令 |
+| `scripts/mapping/replay_clock.py`、`record_g1_a_segment.sh` | `scripts/real/` | 仅文档引用，需改文档 |
 | `scripts/g1_loco_*.cpp/hpp`（4 个） | `scripts/real/loco_cpp/` | 文档里的编译命令，包含 `-I$R/scripts` |
-| `scripts/g1_mujoco_sensors.py`、`g1_walking_sim.py` | `scripts/sim/` | 二者必须同目录；`g1_mujoco.launch.py:48` |
+| `scripts/simulation/g1_mujoco_sensors.py`、`g1_walking_sim.py` | `scripts/sim/` | 二者必须同目录；`g1_mujoco.launch.py:48` |
 | 仿真入口的 8 个 `.sh` | `scripts/sim/` | 同步 source 路径、字面调用及启动与停止脚本的仓库根定位 |
-| `scripts/walking_env.sh` | 原路径 | 保留现有 source 入口和环境契约 |
-| `scripts/g1_command_bridge.py`、`g1_operator.py` | `scripts/sim/` | 同步调用方及仓库根定位 |
+| `scripts/env/walking_env.sh` | 原路径 | 保留现有 source 入口和环境契约 |
+| `scripts/simulation/g1_command_bridge.py`、`g1_operator.py` | `scripts/sim/` | 同步调用方及仓库根定位 |
 | `scripts/validate_*`、`check_g1_localization.py` | `scripts/sim/` | 文档 |
-| `scripts/dufomap_clean.py`、`export_g1_map.py`、`g1_scan_scene.py`、`check_g1_scan_scene.py` | `scripts/tools/` | 四个模块互相 import，且 `hang_a02/plaster-map/mujoco/trial.py:12` 跨目录 import 了 `check_g1_scan_scene` |
-| `scripts/dufomap_loop_sim.py` 等 3 个 DUFOMap 脚本 | `scripts/tools/` | 仅文档引用 |
+| `scripts/mapping/dufomap_clean.py`、`export_g1_map.py`、`g1_scan_scene.py`、`check_g1_scan_scene.py` | `scripts/tools/` | 四个模块互相 import，且 `hang_a02/plaster-map/mujoco/trial.py:12` 跨目录 import 了 `check_g1_scan_scene` |
+| `scripts/simulation/dufomap_loop_sim.py` 等 3 个 DUFOMap 脚本 | `scripts/tools/` | 仅文档引用 |
 | `scripts/build_*`、`setup_g1_local_deps.sh`、`generate_nav_params.py` | `scripts/tools/` | `generate_nav_params.py:51` 会把路径写进 `navigation/g1_nav2_params.yaml` 的注释 |
 
 ## 5. 必须同步修改的引用
@@ -87,7 +90,7 @@ scripts/
 - **launch（3 个文件、5 处）**：`open3d_loc/launch/g1_navigation.launch.py`、`g1_walking_localization.launch.py`、`g1_mujoco.launch.py`。
 - **Shell**：逐个检查 `BASH_SOURCE`、`dirname`、`source` 和相对路径。移动后的真机采集和仿真入口引用上一级的 `walking_env.sh`。更新 `run_g1_mujoco.sh`、`stop_g1_mujoco.sh`、`build_g1_ros2.sh`、`setup_g1_local_deps.sh` 的仓库根计算。保留环境脚本的 ROS overlay、域、日志及工作目录语义。
 - **Python 与配置**：按目标位置逐一检查根路径、同级导入、跨目录导入、动态拼接和命令提示。同步生成器及已提交 YAML 中的入口注释。
-- **文档**：`CONFIGURATION.md`、`VALIDATION.md`、`NAVIGATION_MANUAL.md`、`README.md`、`sim/README.md`、`g1_real_robot_docs/`（`g1_pc2_live_nav_web_runbook.md`、`g1_real_robot_slam_pc2_b300_guide.md`、`g1_real_robot_slam_notes.md`、`2026-11-10_g1_autonomous_walk_plan.md`）、`debug_log/` 内引用脚本的几篇、`docs/superpowers/plans/2026-11-05-dufomap-sim.md`、`scripts/hang_a02/README.md`。
+- **文档**：`CONFIGURATION.md`、`VALIDATION.md`、`NAVIGATION_MANUAL.md`、`README.md`、`sim/README.md`、`g1_real_robot_docs/`（`g1_pc2_live_nav_web_runbook.md`、`g1_real_robot_slam_pc2_b300_guide.md`、`g1_real_robot_slam_notes.md`、`2026-11-10_g1_autonomous_walk_plan.md`）、`debug_log/` 内引用脚本的几篇、`docs/superpowers/plans/2026-11-05-dufomap-sim.md`、`scripts/experiments/hang_a02/README.md`。
 - **PC2 与 4322 的部署副本**：迁移后必须重新 rsync，否则现场手册里的命令会指向不存在的路径；迁移当天的实机验证要在同步完成后重跑。
 
 顺带修两处已过期的描述：`debug_log/2026-11-10_pc2_live_nav_web.md` 说 `g1_loco_sender_session.hpp`「只存在于 PC2」，实际仓库里已有；`g1_real_robot_docs/README.md` 对 `notes` 与 `guide` 的关系也需要随目录调整更新。
@@ -126,7 +129,7 @@ scripts/
 | `g1_real_robot_docs/` 两份指南 | `g1_real_robot_slam_pc2_b300_guide.md`（990 行）与 `g1_real_robot_slam_notes.md`（778 行）前 10 章标题几乎逐字相同 | notes 只保留 x86/Humble 章节，其余并入 guide 附录 |
 | `g1_real_robot_docs/debug_log/` 索引 | `README.md` 只列 6 篇，漏了 3 篇；`2026-11-10_g1_autonomous_walk_plan.md` 全仓无入链 | 补全索引并把 walk plan 挂到 guide 或本计划 |
 | `open3d_loc/launch/` | 6 个 launch 里 `localization_3d_g1`、`open3d_loc_g1` 已过期（guide 自标「历史入口」），`g1_mujoco` 被 `g1_walking_localization` 覆盖；另有 2 个陈旧 `__pycache__/*.pyc` | 删两个历史入口与 pyc，README 改指现行入口 |
-| `scripts/hang_a02/` | 三套并行实现：根目录、`combined/`、`plaster-map/` 各有 `compare/render/rviz_review`，没有说明哪套现行 | 保留 `combined/`，其余进 `archive/` |
+| `scripts/experiments/hang_a02/` | 三套并行实现：根目录、`combined/`、`plaster-map/` 各有 `compare/render/rviz_review`，没有说明哪套现行 | 保留 `combined/`，其余进 `archive/` |
 | `FAST_LIO/Log/` | `dbg.txt`、`imu.txt`、`pos_log.txt`、`mat_out.txt`、`mat_pre.txt` 等 8 个运行日志被提交 | 移出仓库或 ignore，只保留目录占位 |
 | `FAST_LIO/config/` | `avia`、`horizon`、`ouster64`、`velodyne` 与本项目无关 | 按需保留 `mid360`、`g1_walking`，其余归档 |
 | `docs/superpowers/plans/` | 只有 1 个孤立计划文件，层级过深 | 并入 `g1_real_robot_docs/debug_log/` |
