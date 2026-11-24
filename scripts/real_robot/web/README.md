@@ -103,3 +103,13 @@ python3 scripts/real_robot/web/foxglove_bridge.py \
 `ws://127.0.0.1:8765`。添加 3D 面板，固定坐标系设为 `map`，
 启用 `/plaster/clean_cloud`、`/map`、`/global_costmap/costmap` 和 TF。
 `/localization/scan_cloud` 由现场定位节点提供。点选仅规划仍通过原网页提交。
+
+## 定位前检查导出地图
+
+在 PC2 执行 `./scripts/real_robot/05_web_navigation.sh "$G1_DATA/maps/B1_run03_map" --review --port 18082`（替换为实际地图目录）。Mac 建立 `ssh -N -L 18082:127.0.0.1:18082 unitree@<当次无线IP>`，打开 `http://127.0.0.1:18082/`。
+
+此模式只读加载 trinary 地图 YAML 和图像，不启动 ROS/定位/Nav2；支持缩放、拖动平移、点击查询栅格状态及地图坐标。地图原点显示红色十字。结果用于人工地图核对，不自动证明地图质量或机器人净空。地图在启动时加载，重新导出后需重启检查服务。仅回环监听并限制 Host；检查结束 Ctrl+C 停止。
+
+二维地图下方显示同目录的 `plaster.png`。如文件未生成，页面会提示先安装依赖并执行 `02 export --plaster`；已有地图可按 WORKFLOWS 的说明单独补充石膏预览。生成后重启检查服务。石膏预览仅用于结构检查，不支持导航坐标选取。
+
+石膏预览优先读取 `surface.ply` 显示交互三维网格：左键拖动旋转、右键拖动平移、滚轮缩放，并提供俯视和重置按钮。Three.js 0.160.1、OrbitControls 和 PLYLoader 随页面本地部署，不依赖浏览器访问外部 CDN；许可保存在 `assets/three/LICENSE`。缺少网格或 WebGL 不可用时回退到静态 `plaster.png`，页面会标明原因。

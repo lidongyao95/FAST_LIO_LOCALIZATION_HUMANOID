@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 import numpy as np
 import rclpy
 from action_msgs.msg import GoalStatus
-from nav2_msgs.action import ComputePathToPose
+from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from nav2_msgs.msg import Costmap
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid
@@ -26,6 +26,7 @@ from rclpy.time import Time
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from obstacle_control import PlanningObstacleClient
+from navigation import NavigationSession
 
 
 def yaw(q):
@@ -272,7 +273,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'pose': node.pose(), 'planner': node.planner_ready,
                                'map': node.grid is not None, 'demo': self.server.demo,
                                'costmap': node.costmap and node.costmap['revision'],
-                               'planning_obstacles': node.planning_obstacles.state()})
+                               'planning_obstacles': node.planning_obstacles.state(),
+                               'navigation': self.server.navigation.state()})
         if route == '/api/obstacles':
             return self.reply(node.live_obstacles())
         if route == '/api/costmap':
@@ -285,18 +287,32 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get('Host')
         if not self.local_host() or self.headers.get('Origin') not in (None, f'http://{host}'):
             return self.reply({'error': 'Invalid origin'}, 403)
-        if self.path not in ('/api/plan', '/api/planning-obstacles') or self.headers.get('Content-Type') != 'application/json':
+        if self.path not in ('/api/plan', '/api/planning-obstacles', '/api/navigate', '/api/navigation/cancel', '/api/navigation/heartbeat') or self.headers.get('Content-Type') != 'application/json':
             return self.reply({'error': 'Invalid endpoint or content type'}, 400)
+        if self.path in ('/api/navigation/cancel', '/api/navigation/heartbeat'):
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+                if not 0 < size <= 1024: raise ValueError('请求长度无效')
+                data=json.loads(self.rfile.read(size))
+                if not isinstance(data,dict): raise ValueError('请求必须为 JSON 对象')
+                if self.path.endswith('/cancel'):
+                    return self.reply({'navigation': self.server.navigation.cancel()})
+                self.server.navigation.heartbeat(data.get('token',''))
+                return self.reply({'ok':True})
+            except (ValueError,TypeError) as error:
+                return self.reply({'error':str(error)},422)
         if not self.server.plan_lock.acquire(blocking=False):
             return self.reply({'error': '正在规划或切换规划实时障碍，请稍候'}, 409)
         try:
             size = int(self.headers.get('Content-Length', '0'))
             if not 0 < size <= 1024:
                 raise ValueError('请求长度无效')
+            node = self.server.node
             data = json.loads(self.rfile.read(size))
             if not isinstance(data, dict):
                 raise ValueError('请求必须为 JSON 对象')
             if self.path == '/api/planning-obstacles':
+                if self.server.navigation.state()['active']: raise RuntimeError('请先取消实机导航，再调整障碍设置')
                 control = self.server.node.planning_obstacles
                 if set(data) == {'enabled'}:
                     result = control.set_enabled(data['enabled'])
@@ -315,12 +331,22 @@ class Handler(BaseHTTPRequestHandler):
                 if (not after['available'] or after['busy'] or
                         (before['session'], before['revision']) != (after['session'], after['revision'])):
                     raise RuntimeError('规划期间障碍设置发生变化，请重新规划')
-                self.reply({'path': path})
+                if self.path == '/api/navigate':
+                    goal=NavigateToPose.Goal()
+                    goal.pose.header.frame_id=node.grid['frame']
+                    goal.pose.header.stamp=node.get_clock().now().to_msg()
+                    goal.pose.pose.position.x=float(data['x']);goal.pose.pose.position.y=float(data['y'])
+                    goal.pose.pose.orientation.z=math.sin(float(data['yaw'])/2)
+                    goal.pose.pose.orientation.w=math.cos(float(data['yaw'])/2)
+                    token=self.server.navigation.start(goal,wait_for)
+                    self.reply({'path':path,'token':token,'navigation':self.server.navigation.state()})
+                else:
+                    self.reply({'path': path})
         except (ValueError, TypeError, KeyError) as exc:
             self.reply({'error': str(exc)}, 422)
         except TimeoutError as exc:
             self.reply({'error': str(exc)}, 504)
-        except RuntimeError as exc:
+        except (RuntimeError, OSError) as exc:
             self.reply({'error': str(exc), 'planning_obstacles': self.server.node.planning_obstacles.state()}, 503)
         finally:
             self.server.plan_lock.release()
@@ -335,12 +361,16 @@ def main():
     parser.add_argument('--port', type=int, default=18081)
     parser.add_argument('--demo', nargs='?', const='测试地图', help='Label isolated demo data')
     parser.add_argument('--robot-frame', default='base_footprint', help='TF frame used for the robot marker')
+    parser.add_argument('--real-navigation',action='store_true')
+    parser.add_argument('--sdk-executable',default='')
+    parser.add_argument('--robot-interface',default='eth0')
     args, ros_args = parser.parse_known_args()
     rclpy.init(args=ros_args)
     tf_thread = TfThread(args.robot_frame)
     node = Planner(args.robot_frame, tf_thread)
     with ThreadingHTTPServer(('127.0.0.1', args.port), Handler) as server:
         server.node = node
+        server.navigation = NavigationSession(node,args.real_navigation,args.sdk_executable,args.robot_interface)
         server.tf_thread = tf_thread
         server.demo = args.demo
         server.plan_lock = threading.Lock()
@@ -359,6 +389,7 @@ def main():
         except KeyboardInterrupt:
             pass
         finally:
+            server.navigation.cancel('网页服务已停止')
             server.shutdown()
             node.destroy_node()
             if rclpy.ok():

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
-<title>PC2 · G1 导航规划</title>
+<title>PC2 · G1 实机导航</title>
 <style>
 * { box-sizing: border-box }
 body { margin: 0; background: #111922; color: #eff5fa; font: 15px system-ui,sans-serif }
@@ -19,7 +19,8 @@ h2 { font-size: 16px; margin-top: 0 }
 p { line-height: 1.6; color: #c0d0dc }
 output { display: block; min-height: 48px; margin-top: 12px; color: #a7e7ff; overflow-wrap: anywhere }
 button { width: 100%; margin-top: 10px; border: 0; border-radius: 6px; min-height: 56px; padding: 14px 16px; font-size: 17px; background: #91eadb; color: #092723; font-weight: bold; cursor: pointer }
-#plan { min-height: 68px; font-size: 21px }
+#navigate { min-height: 68px; font-size: 21px }
+#cancel { background: #ff9a8b; color: #41120b }
 button:disabled { opacity: .45; cursor: default }
 .secondary { background: #344858; color: white }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px }
@@ -50,7 +51,7 @@ input[type="range"]:disabled { opacity: .4; cursor: default }
 </style>
 </head>
 <body>
-<header><h1>PC2 · G1 导航规划</h1><span id="mode" class="badge">仅规划</span></header>
+<header><h1>PC2 · G1 实机导航</h1><span id="mode" class="badge">连接中</span></header>
 <main>
 <section>
 <canvas id="map" aria-label="占据栅格地图"></canvas>
@@ -92,10 +93,13 @@ input[type="range"]:disabled { opacity: .4; cursor: default }
 <label><input id="obstacles" type="checkbox" checked> 显示实时雷达障碍点</label>
 <p id="obstacleStatus">等待实时雷达点云</p>
 </div>
-<h2>目标与规划</h2>
+<h2>目标与导航</h2>
 <p>在地图上点选目标。按住并拖动可设定朝向。</p>
 <p id="coordinates">目标尚未选择</p>
-<button id="plan" disabled>仅规划</button>
+<button id="plan" class="secondary" disabled>规划路径</button>
+<button id="navigate" disabled>开始实机导航</button>
+<button id="cancel" disabled>取消并停车</button>
+<p id="navigationStatus" aria-live="polite">正在读取导航状态…</p>
 <button id="reset" class="secondary" disabled>清除目标与路径</button>
 <output id="result" aria-live="polite"></output>
 </aside>
@@ -108,6 +112,10 @@ const coordinates = document.querySelector('#coordinates');
 const result = document.querySelector('#result');
 const button = document.querySelector('#plan');
 const reset = document.querySelector('#reset');
+const navigate = document.querySelector('#navigate');
+const cancel = document.querySelector('#cancel');
+const navigationStatus = document.querySelector('#navigationStatus');
+let navigationToken, heartbeatBusy = false;
 let grid, raster, target, drag, view;
 let path = [], state = {}, pending = false;
 const costToggle = document.querySelector('#costmap');
@@ -251,16 +259,23 @@ function update() {
   coordinates.textContent = target
     ? `X ${target[0].toFixed(2)} m · Y ${target[1].toFixed(2)} m · ${Math.round(target[2] * 180 / Math.PI)}°`
     : '目标尚未选择';
-  const changing = planningObstaclesPending || planningObstacles?.busy;
+  const active = state.navigation?.active;
+  const changing = planningObstaclesPending || planningObstacles?.busy || active;
   const known = planningObstacles?.available && typeof planningObstacles.enabled === 'boolean';
   button.disabled = !target || !state.pose || !state.planner || !known || !!thresholdDraft || pending || changing;
   reset.disabled = !target || pending || changing;
+  navigate.disabled = button.disabled || !path.length || !state.navigation?.available;
+  cancel.disabled = !active && !navigationToken && !pending;
+  navigationStatus.textContent = active ? state.navigation.message
+    : state.navigation?.reason || state.navigation?.message || '等待导航服务';
   planningObstaclesToggle.checked = planningObstaclesPending
     && typeof planningObstaclesRequest?.enabled === 'boolean'
     ? planningObstaclesRequest.enabled : known && planningObstacles.enabled;
   planningObstaclesToggle.disabled = !known || pending || changing;
   planningObstaclesStatus.dataset.enabled = known ? String(planningObstacles.enabled) : 'unknown';
-  if (changing) {
+  if (active) {
+    planningObstaclesStatus.textContent = '导航执行中，停止后可调整';
+  } else if (changing) {
     planningObstaclesStatus.textContent = planningObstaclesPending
       ? (planningObstaclesRequest.thresholds ? '正在应用阈值并更新代价地图…' :
           planningObstaclesRequest.enabled ? '正在开启规划实时障碍…' : '正在关闭规划实时障碍并更新地图…')
@@ -292,7 +307,7 @@ function update() {
 }
 
 canvas.onpointerdown = event => {
-  if (!grid || pending || planningObstaclesPending || planningObstacles?.busy || event.button !== 0) return;
+  if (!grid || state.navigation?.active || pending || planningObstaclesPending || planningObstacles?.busy || event.button !== 0) return;
   const xy = world(event);
   const [px, py] = project(xy);
   if (px < view.left || px >= view.left + grid.width * grid.resolution * view.scale ||
@@ -337,8 +352,8 @@ async function applyPlanningOptions(request) {
       throw new Error('尚未确认生效状态');
     }
     result.textContent = request.thresholds
-      ? '障碍阈值已生效，请重新点击“仅规划”。'
-      : '规划实时障碍已切换，请重新点击“仅规划”。';
+      ? '障碍阈值已生效，请重新点击“规划路径”。'
+      : '规划实时障碍已切换，请重新点击“规划路径”。';
   } catch (error) {
     planningObstacles = undefined;
     result.textContent = `规划障碍设置失败 · ${error.name === 'AbortError' ? '响应超时，正在重新读取状态' : error.message}`;
@@ -386,6 +401,54 @@ button.onclick = async () => {
   }
 };
 
+async function navigationRequest(route, data = {}) {
+  const response = await fetch(route, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+  const reply = await response.json();
+  if (!response.ok) throw new Error(reply.error || '导航请求失败');
+  return reply;
+}
+navigate.onclick = async () => {
+  pending = true;
+  result.textContent = '正在接受目标并检查实机运控…';
+  update();
+  try {
+    const [x, y, yaw] = target;
+    const data = await navigationRequest('/api/navigate', {x, y, yaw});
+    navigationToken = data.token;
+    state.navigation = data.navigation;
+    path = data.path;
+    result.textContent = '实机导航已开始';
+  } catch (error) {
+    result.textContent = `启动失败 · ${error.message}`;
+  } finally {
+    pending = false;
+    update();
+  }
+};
+cancel.onclick = async () => {
+  navigationToken = undefined;
+  try {
+    const data = await navigationRequest('/api/navigation/cancel');
+    state.navigation = data.navigation;
+    result.textContent = data.navigation.message;
+  } catch (error) {
+    result.textContent = `停车请求失败 · ${error.message}；请人工接管`;
+  }
+  update();
+};
+setInterval(async () => {
+  if (!navigationToken || heartbeatBusy) return;
+  heartbeatBusy = true;
+  try {
+    await navigationRequest('/api/navigation/heartbeat', {token: navigationToken});
+  } catch {
+    navigationToken = undefined;
+    result.textContent = '导航连接中断，任务将停止；请检查机器人状态。';
+  } finally {
+    heartbeatBusy = false;
+  }
+}, 500);
+
 async function refresh() {
   const version = planningObstaclesVersion;
   try {
@@ -395,7 +458,7 @@ async function refresh() {
       if (path.length && (!next?.available || next.busy || (planningObstacles &&
           (next.revision !== planningObstacles.revision || next.session !== planningObstacles.session)))) {
         path = [];
-        result.textContent = '规划实时障碍设置已变化，请重新点击“仅规划”。';
+        result.textContent = '规划实时障碍设置已变化，请重新点击“规划路径”。';
       }
       planningObstacles = next;
     }
@@ -412,7 +475,8 @@ async function refresh() {
     costStatus.textContent = state.costmap
       ? (costToggle.checked && costs?.frame !== grid?.frame ? '等待匹配的地图坐标系' : '红色障碍 · 橙色膨胀代价')
       : '等待代价地图';
-    document.querySelector('#mode').textContent = state.demo ? state.demo + ' · 仅规划' : '仅规划';
+    document.querySelector('#mode').textContent = state.demo || (state.navigation?.active ? '实机导航执行中' : state.navigation?.mode === 'real' ? '实机导航待命' : '仅规划');
+    if (!state.navigation?.active && !pending) navigationToken = undefined;
     connection.textContent = [
       'PC2 已连接', state.map ? '地图就绪' : '等待地图',
       state.pose ? '定位 TF 可用' : '等待定位 TF',
