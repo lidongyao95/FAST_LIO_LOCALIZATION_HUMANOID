@@ -45,7 +45,9 @@ g1_lib_paths=()
 arch="$(uname -m)"
 unitree_lib="$G1_REPO/.deps/src/unitree_sdk2/thirdparty/lib/$arch"
 open3d_lib="$G1_REPO/.deps/root/usr/lib/${arch}-linux-gnu"
-for path in "$unitree_lib" "$open3d_lib" "$G1_REPO/.deps/sdk/lib" /usr/local/lib; do
+# 解包式 ARM Open3D 的依赖（liblapacke/libtmglib）放在 runtime 树里，不是 .deps/root。
+open3d_runtime_lib="$G1_REPO/.deps/arm-open3d/runtime/usr/lib/${arch}-linux-gnu"
+for path in "$unitree_lib" "$open3d_lib" "$open3d_runtime_lib" "$G1_REPO/.deps/sdk/lib" /usr/local/lib; do
     [[ -d "$path" ]] && g1_lib_paths+=("$path")
 done
 if ((${#g1_lib_paths[@]})); then

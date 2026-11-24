@@ -9,7 +9,8 @@ usage() {
   04_robot_ready.sh [status] [--lidar-topic TOPIC] [--interface NIC] [--sdk-preflight EXE]
   04_robot_ready.sh localize --map MAP.ply [--initial X Y Z ROLL PITCH YAW] [--lidar-topic TOPIC]
 status 仅读取雷达、FAST-LIO、Open3D 和可选的运控模式。
-localize 保持持续配准运行。初值为 map ← camera_init 变换，单位米和度。
+localize 默认自动全局重定位：保持机器人静止，无需手动初值。
+--initial 仅用于显式调试，表示 map ← camera_init 变换（米、度）。
 EOF
 }
 
@@ -34,15 +35,12 @@ if [[ "$mode" == localize ]]; then
     [[ -n "$map" ]] || usage_error "localize 需要 --map"
     check_file "$map"
     [[ -z "$nic$sdk" ]] || usage_error "SDK 查询参数用于 status"
-    if ((${#initial[@]} == 0)); then
-        [[ -t 0 ]] || usage_error "非交互运行需传 --initial X Y Z ROLL PITCH YAW"
-        say "请输入初始地图配准 x y z roll pitch yaw（米、度）"
-        read -r -a initial
+    if ((${#initial[@]})); then
+        ((${#initial[@]} == 6)) || usage_error "初值需要六个数"
+        values=$("${G1_PYTHON:-python3}" -c 'import math,sys; v=list(map(float,sys.argv[1:])); assert all(map(math.isfinite,v)); print(*(format(x,".9f") for x in v))' "${initial[@]}") ||
+            usage_error "初值必须为有限数"
+        read -r -a initial <<<"$values"
     fi
-    ((${#initial[@]} == 6)) || usage_error "初值需要六个数"
-    values=$("${G1_PYTHON:-python3}" -c 'import math,sys; v=list(map(float,sys.argv[1:])); assert all(map(math.isfinite,v)); print(*(format(x,".9f") for x in v))' "${initial[@]}") ||
-        usage_error "初值必须为有限数"
-    read -r -a initial <<<"$values"
 else
     [[ -z "$map" ]] && ((${#initial[@]} == 0)) || usage_error "地图和初值用于 localize"
     [[ -z "$sdk" || -n "$nic" ]] || usage_error "--sdk-preflight 需要 --interface NIC"
@@ -92,10 +90,34 @@ if probe tf --target map --frame body --seconds 3; then
     fail "已有 map → body TF；检查是否仍运行静态对齐或旧定位会话"
 fi
 
+if ((${#initial[@]} == 0)); then
+    initializer="$(ros2 pkg prefix open3d_loc)/lib/open3d_loc/global_initialize"
+    [[ -x "$initializer" ]] || fail "缺少自动重定位程序；请先重新构建 open3d_loc"
+    say '正在自动检测地图位置与朝向，请保持机器人静止；无需输入初值。'
+    /usr/bin/python3 "$repo/scripts/real_robot/capture_global_scans.py" "$run_dir/global-scans" 2>&1 |
+        tee "$run_dir/global-capture.log" || fail "自动重定位扫描采集失败；未启动地图定位"
+    say '全图搜索与多候选/三组扫描验证中，最长 120 秒。'
+    timeout --foreground 120 "$initializer" "$map" \
+        "$run_dir/global-scans/scan1.ply" "$run_dir/global-scans/scan2.ply" "$run_dir/global-scans/scan3.ply" \
+        "$run_dir/global-initialization.json" 2>&1 | tee "$run_dir/global-search.log" ||
+        fail "自动重定位失败、存在位置歧义或搜索超时；查看 global-search.log；未发布候选地图位姿"
+    values=$(/usr/bin/python3 - "$run_dir/global-initialization.json" <<'AUTO_INITIAL'
+import json,math,sys
+result=json.load(open(sys.argv[1]))
+values=result['initial']
+assert result['accepted'] is True and len(values)==6 and all(math.isfinite(v) for v in values)
+print(*values)
+AUTO_INITIAL
+    ) || fail "自动重定位输出无效"
+    read -r -a initial <<<"$values"
+    say "自动重定位已通过多组扫描验证，开始持续跟踪。结果记录在 $run_dir/global-initialization.json"
+fi
+
 start_bg open3d ros2 launch "$repo/open3d_loc/launch/g1_walking_localization.launch.py" \
     "repo:=$repo" "map_ply:=$map" real_robot:=true start_lio:=false use_sim_time:=false \
     "initial_x:=${initial[0]}" "initial_y:=${initial[1]}" "initial_z:=${initial[2]}" \
     "initial_roll:=${initial[3]}" "initial_pitch:=${initial[4]}" "initial_yaw:=${initial[5]}"
 wait_ready localized --seconds 75
 say "Open3D 已配准，map → body 持续更新。保留本终端，再开一个终端启动 Web。"
+print_web_next_steps "$map" 2>&1 | tee "$run_dir/next-web.txt"
 session_wait

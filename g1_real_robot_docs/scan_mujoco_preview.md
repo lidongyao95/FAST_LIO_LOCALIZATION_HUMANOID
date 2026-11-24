@@ -53,10 +53,20 @@ RViz 用于观察地图、定位和规划，并点击设置目的地及最终朝
 ```bash
 source scripts/env/walking_env.sh
 .deps/venv/bin/python scripts/mapping/g1_scan_scene.py \
-  --pcd "$PWD/tmp/g1_real_data/replay/static_01_inverted.pcd"
+  --pcd "$PWD/tmp/g1_real_data/replay/static_01_inverted.pcd" --auto-start
 ```
 
 默认输出 `sim/generated/real_scan/`，可用 `--out`、`--radius` 指定目录和裁剪半径。
+
+`--auto-start` 会在 0.25 m 网格上挑选离原点最近、与碰撞体保持至少 0.75 m 余量的出生点，并打印 `auto spawn <x> <y> clearance <m>`。实机点云常把原点处的立柱或人当成障碍，此时不加该参数会报 `Scan obstacles overlap robot spawn`；需要固定出生点仍可用 `--start X Y`。
+
+Mac 仓库根有统一入口，可省去手工拷 PCD：
+
+```bash
+./scripts/simulation/03_preview.sh prepare pc2:/home/unitree/ldy/g1_real_data/maps/B1_run03.pcd \
+  --name B1_run03_preview --pc2 unitree@<当次无线IP>
+./scripts/simulation/03_preview.sh play sim/generated/B1_run03_preview
+```
 首次确认输入已经完成倒装方向修正，且传感器原点在地面上方；地面拟合失败、障碍物
 覆盖默认出生区域时生成器会报错，需检查输入。不要在仿真运行期间覆盖场景资产。
 
@@ -223,3 +233,11 @@ nvidia-smi | grep "$rviz_pid"
 上次已在 4322 验证模拟定位、Nav2 激活、运动门禁和 `/navigate_to_pose` 服务端就绪，
 并确认 RViz 使用 RTX 4090。日志出现过代价地图因点云时间早于 TF 缓存而丢帧。
 现场复现时同时观察两张代价地图及 TF。手动到点结果以实际试跑记录为准。
+
+## 02 后可选 03 一体化入口
+
+在操作电脑的仓库根执行 `03_preview.sh play pc2:/绝对/采集.pcd --name 新名称 --pc2 unitree@当次无线IP`：集成上传与 SHA-256 校验、自动安全起点、场景/配套地图生成、服务器导航启动。`prepare` 只准备，`launch sim/generated/名称` 复用已生成场景；已有场景也可直接 `play`。导航参数放在 `--` 后，例如 `-- --headless --goal X Y`。
+
+默认服务器 4622，连接失败或 GPU 空闲显存 <2 GiB 时尝试 4322；显式 G1_SIM_PORT 不回退。默认仿真域 75，不得用实机 223。自动读取生成元数据的出生点，启动前检查动态库并可复用服务器已有只读 ROS 覆盖层。生成进程日志与 pid/status 在服务器 `~/ldy/g1_real_data/records/preview/`，每 25 秒检查进程/日志增长/终态。
+
+生成器支撑 weld 使用显式零相对位姿，避免非零自动出生点保留编译前的原点偏移。仿真派生图和实机原图独立；03 可跳过，预演结束回到 PC2 直接用原实机图执行 04。

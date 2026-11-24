@@ -18,12 +18,68 @@ export 和 dufo 生成同坐标系的 map.ply、map.yaml、map.pgm 与 metadata.
 EOF
 }
 
+print_map_review() {
+    local out=$1 pcd=${2:-} wireless_ip name
+    if [[ -s "$out/metadata.json" ]]; then
+        pcd=$(/usr/bin/python3 - "$out/metadata.json" "$pcd" <<'MAP_SOURCE'
+import json,sys
+try:
+    print(json.load(open(sys.argv[1])).get('source_pcd') or sys.argv[2])
+except (OSError,ValueError):
+    print(sys.argv[2])
+MAP_SOURCE
+        )
+    fi
+    say '下一步：在本机终端启动网页检查这张地图（保持该终端运行）：'
+    printf 'cd %q
+' "$repo" >&2
+    printf './scripts/real_robot/05_web_navigation.sh %q --review --port 18082
+' "$out" >&2
+    wireless_ip=
+    if command -v ip >/dev/null 2>&1; then
+        wireless_ip=$(ip -4 -o addr show dev wlan0 scope global 2>/dev/null |
+            awk 'NR == 1 { split($4, address, "/"); print address[1] }') || wireless_ip=
+    fi
+    say '在浏览器所在电脑另开终端执行端口转发（保持该终端运行）：'
+    if [[ -n "$wireless_ip" ]]; then
+        printf 'ssh -N -L 18082:127.0.0.1:18082 unitree@%s
+' "$wireless_ip" >&2
+        say '上述无线 IP 来自当次 wlan0，重连后需重新核对。'
+    else
+        printf 'ssh -N -L 18082:127.0.0.1:18082 用户@运行导出的主机IP
+' >&2
+        say '未检测到 wlan0 地址，请将用户和主机 IP 替换为实际连接目标；本机浏览无需转发。'
+    fi
+    say '浏览器打开：http://127.0.0.1:18082/'
+    say '检查墙、门口、重影及起点栅格；完成后在网页服务终端按 Ctrl+C。'
+    say '巡检完成后二选一：'
+    say '（A）直接在 PC2 启动持续定位（实机导航使用这张地图）：'
+    printf './scripts/real_robot/04_robot_ready.sh localize --map %q/map.ply
+' "$out" >&2
+    say '（B）可选：先在仿真服务器上做导航预演，确认路线可通过后再上实机。'
+    say '    Mac 只负责发起：03_preview.sh 通过 SSH 把地图传到服务器，MuJoCo、定位与 Nav2 都在服务器上运行，Mac 不跑仿真。'
+    say '    默认服务器为 4622 的 sjtu@202.121.181.124；换机器用环境变量 G1_SIM_HOST / G1_SIM_PORT 指定。'
+    if [[ -n "$pcd" ]]; then
+        name="$(basename "${pcd%.pcd}")_preview_$(date +%Y%m%d_%H%M%S)"
+        local pc2_target="unitree@<当次无线IP>"
+        [[ -n "$wireless_ip" ]] && pc2_target="unitree@$wireless_ip"
+        say '在 Mac 仓库根执行一条命令：读取 PC2 的 PCD → 传输并校验 → 自动选出生点 → 生成场景 → 启动服务器预演：'
+        printf './scripts/simulation/03_preview.sh play %q --name %q --pc2 %s\n' "pc2:$pcd" "$name" "$pc2_target" >&2
+        say '仅准备不启动时，将 play 换成 prepare；随后按 03 输出的命令 launch。'
+        say '无图形界面时在命令末尾加 -- --headless --goal X Y；目标在派生仿真地图中选择。'
+        say '默认仿真域 75，与实机域 223 分离。预演后回到 PC2 执行上面的 04，不把仿真地图拷回实机。'
+    else
+        say '本次未拿到采集 PCD 路径，B 分支请直接用实机 PCD 运行 03_preview.sh prepare。'
+    fi
+}
+
 case "${1:-}" in ''|-h|--help) usage; exit 0 ;; esac
 mode=$1
 shift
 for arg in "$@"; do if [[ "$arg" == --help || "$arg" == -h ]]; then usage; exit 0; fi; done
 mapping="$repo/scripts/mapping"
 python="${G1_PYTHON:-python3}"
+if [[ "$mode" == export || "$mode" == dufo ]]; then python=$(offline_python); fi
 
 case "$mode" in
     record)
@@ -105,6 +161,8 @@ print(f"录包消息数：{counts}")
 PY
         then fail "录包元数据或消息数异常，请检查 $G1_DATA/records/$run_name/record.log"; fi
         say "采集完成，地图 $G1_DATA/maps/$run_name.pcd，录包 $G1_DATA/bags/$run_name"
+        say '下一步导出地图；导出后会给出可选 03 预演与直接 04 定位两条分支：'
+        printf './scripts/workflows/02_mapping.sh export %q %q --plaster\n' "$G1_DATA/maps/$run_name.pcd" "$G1_DATA/maps/${run_name}_map" >&2
         ;;
     capture-scans)
         need_args 1 "$#" "$mode"
@@ -164,6 +222,24 @@ PY
         esac
         [[ "$floor_model" == plane || "$floor_model" == percentile ]] || usage_error "floor-model 只能是 plane 或 percentile"
         log_session
+        if [[ -e "$out" || -L "$out" ]]; then
+            if [[ -d "$out" ]] && "$python" - "$out" "$repo" <<'EXISTING_MAP'
+import sys
+sys.path.insert(0, sys.argv[2] + '/scripts/real_robot/web')
+from map_review import load_map
+try:
+    load_map(sys.argv[1])
+except Exception as error:
+    sys.exit(f'已有目录无法预览：{error}')
+EXISTING_MAP
+            then
+                say "输出目录已存在：${out}；保留已有地图，本次未重新导出或应用导出参数。"
+                print_map_review "$out" "$input"
+                say '如果网页服务和 SSH 转发已在运行，直接打开上述链接；需要重新导出时请选择新目录。'
+                exit 3
+            fi
+            fail "输出路径已存在且不是可预览的有效地图：${out}；请选择新目录"
+        fi
         "$python" -c 'import numpy, cv2' || fail "地图导出需要 NumPy 和 OpenCV，可设置 G1_PYTHON"
         if "$plaster"; then
             "$python" -c 'import scipy, skimage, matplotlib' || fail "石膏预览需要 scipy、scikit-image、matplotlib"
@@ -192,6 +268,8 @@ PY
                 tee "$run_dir/plaster.log" || fail "定位地图已导出；石膏预览生成失败，见 plaster.log"
         fi
         say "地图生成完成：$out"
+        print_map_review "$out" "$input"
+
         ;;
     *) usage_error "未知建图任务 $mode" ;;
 esac

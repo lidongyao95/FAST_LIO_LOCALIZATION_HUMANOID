@@ -55,7 +55,7 @@ class NavTF(Node):
         self.tf.sendTransform(base)
 
 def main():
-    rclpy.init();node=NavTF()
+    rclpy.init(args=[]);node=NavTF()
     try:rclpy.spin(node)
     except KeyboardInterrupt:pass
     finally:node.destroy_node();rclpy.try_shutdown()

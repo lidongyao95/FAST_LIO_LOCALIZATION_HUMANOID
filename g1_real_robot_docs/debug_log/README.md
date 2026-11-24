@@ -9,6 +9,11 @@
 - [2026-11-10 PC2 SDK 行走 bring-up](2026-11-10_pc2_sdk_walk_bringup.md)
 - [2026-11-10 MuJoCo 运行时障碍](2026-11-10_mujoco_runtime_obstacles.md)
 - [2026-11-10 scripts 目录重构计划](2026-11-10_scripts_layout_refactor_plan.md)
+- [2026-11-24 PC2 有线部署与本机构建](2026-11-24_pc2_setup_build.md)
+- [2026-11-24 PC2 无初值自动全局重定位](2026-11-24_auto_global_localization.md)
+- [2026-11-24 02 后可选服务器仿真导航](2026-11-24_optional_server_preview.md)
+- [2026-11-24 05 Web 导航 lio 就绪失败定位](2026-11-24_web_navigation_lio_readiness.md)
+- [2026-11-24 G1 切换到 FSM 501 命令记录](2026-11-24_fsm_501_switch.md)
 - [当前验证状态](../README.md)
 - [PC2 单机与 B300 部署指南](../g1_real_robot_slam_pc2_b300_guide.md)
 

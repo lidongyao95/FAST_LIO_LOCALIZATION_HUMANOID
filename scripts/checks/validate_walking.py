@@ -45,7 +45,7 @@ class Probe(Node):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--output',default=str(ROOT/'sim/generated/walking_validation.json'))
     p.add_argument('--no-reset',action='store_true')
-    args=p.parse_args();rclpy.init();node=Probe()
+    args=p.parse_args();rclpy.init(args=[]);node=Probe()
     try:
         node.run_for(.5,'passive')
         if not args.no_reset:node.call(node.reset_srv)

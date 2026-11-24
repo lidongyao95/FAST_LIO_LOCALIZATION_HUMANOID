@@ -2,16 +2,23 @@
 
 日常运行先按[使用流程](../docs/WORKFLOWS.md)选路线。本目录按职责组织，入口编号保留现有命名，不要求跨目录依次执行。
 
+实机从头建图的顺序：Mac 上 `00 check → sync → build`，随后转到 PC2 执行 `01 robot → 02 record/export → 04 localize → 05 Web`。开始采集前独立执行 01；03 仅用于可选仿真。
+
 ## 常用入口
 
 | 任务 | 入口 | 运行位置 |
 | --- | --- | --- |
+| PC2 有线接入、部署检查、源码同步与 PC2 本机构建 | `real_robot/00_pc2_setup.sh check` / `sync` / `build` | Mac / 部署电脑 |
 | 查离线、仿真或实机依赖 | `workflows/01_self_check.sh offline\|sim\|robot` | 对应处理机、仿真机或 PC2 |
+| 检查解包式 Open3D 本地库的传递依赖（缺库时给修复命令） | `env/open3d_runtime_probe.sh`（`--fix` 免 root 补齐） | PC2 / 任何用 `.deps/arm-open3d` 的主机 |
 | 录制实机数据、导出地图 | `workflows/02_mapping.sh record` / `export` | `record` 在 PC2；`export` 可离线处理 |
 | DUFOMap 动态点清理并导出地图 | `workflows/02_mapping.sh capture-scans` / `dufo` | 逐帧采集跟随 FAST-LIO；清理在装有 DUFOMap 的处理机执行 |
 | 内置房间建图和导航 | `simulation/03_simulation.sh map\|nav` | Ubuntu 仿真机 |
+| 实机地图一键上传仿真机并自动选点生成预演场景 | `simulation/03_preview.sh prepare` / `play pc2:/...pcd` | Mac 仓库根发起；仿真在仿真机运行，PCD 取自 PC2（`pc2:/abs/path.pcd`） |
+| 启动已有扫描场景做导航预演 | `simulation/03_preview.sh play` | Mac 仓库根发起，自动 SSH 到仿真机执行 MuJoCo + Nav2 |
 | 实机点云生成场景后的导航预演 | `simulation/scan_preview.sh` | Ubuntu 仿真机，使用虚拟传感器 |
-| 查询实时状态、启动持续定位 | `real_robot/04_robot_ready.sh status\|localize` | PC2 |
+| 查询实时状态、自动全局重定位后持续跟踪 | `real_robot/04_robot_ready.sh status\|localize` | PC2 |
+| 定位前网页检查导出地图 | `real_robot/05_web_navigation.sh MAP_DIR --review --port 18082` | PC2；Mac SSH 转发并浏览 |
 | 网页仅规划 | `real_robot/05_web_navigation.sh` | PC2；浏览器可在 Mac |
 
 以上均为相对 `scripts/` 的路径，支持 `--help`。自检检查依赖；`04 ... status` 检查已运行的数据链，两者用途不同。
@@ -47,3 +54,7 @@ DUFOMap 的[操作步骤](../docs/WORKFLOWS.md#用-dufomap-清理多帧扫描)�
 3. 核对传入的 `repo` 指向这次部署的源码目录，再从日常入口复验。源码迁移完成不等于 PC2 或服务器已部署完成。
 
 远端构建使用 `console_direct+`、后台日志，每 20–30 秒检查进程、日志增长与 `Finished/Failed`，失败先定位原因。首次部署先读[PC2 历史问题汇总](../g1_real_robot_docs/debug_log/2026-11-05_g1_pc2_debug_summary.md)。
+
+`04 ... localize --map MAP.ply` 默认无初值自动重定位；静止采集三组点云、竞争候选与后续扫描验证均通过后才启动持续定位。`--initial` 仅用于显式调试。离线回归入口：`checks/check_global_initialization.py`（运行于本机构建 Open3D 的 Ubuntu 主机）。
+
+02 完成后同时提示：直接 PC2 04，或可选服务器 03。`03_preview.sh play` 对 PCD 输入集成上传、校验、生成与启动；`prepare` 仅生成、`launch` 启动已有场景。默认仿真域 75；全部仿真在服务器运行。

@@ -50,7 +50,7 @@ def main():
         previous_stamp, last = stamp, now
         count += 1
 
-    rclpy.init()
+    rclpy.init(args=[])
     node = rclpy.create_node(f'probe_livox_{args.stream}')
     try:
         node.create_subscription(msg_type, topic, on_message, qos_profile_sensor_data, raw=True)

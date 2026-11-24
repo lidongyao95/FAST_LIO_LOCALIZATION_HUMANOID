@@ -60,10 +60,21 @@ def render_preview(model, data, destination):
     )
 
 
-def check_stability(scene, out, render):
-    model = mujoco.MjModel.from_xml_path(str(scene))
+def scene_data(model, scene):
+    # Match WalkingSim's nonzero automatic spawn before applying a support weld.
+    metadata = scene.with_name("metadata.json")
+    if metadata.is_file():
+        spawn = json.loads(metadata.read_text()).get("spawn_xy_m", [0., 0.])
+        model.qpos0[:2] = spawn
+        model.body("support").pos[:2] = spawn
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
+    return data
+
+
+def check_stability(scene, out, render):
+    model = mujoco.MjModel.from_xml_path(str(scene))
+    data = scene_data(model, scene)
     initial = data.qpos[:3].copy()
     displacement, minimum = 0.0, 0.0
     for _ in range(round(4 / model.opt.timestep)):
@@ -108,7 +119,7 @@ def check_collision(scene, out):
     path = out / "collision_check.xml"
     tree.write(path)
     model = mujoco.MjModel.from_xml_path(str(path))
-    data = mujoco.MjData(model)
+    data = scene_data(model, scene)
     probe, hit = model.geom("probe_geom").id, False
     for _ in range(round(2 / model.opt.timestep)):
         step_supported(model, data)

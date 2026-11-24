@@ -6,6 +6,10 @@
 
 **先看[使用流程](../docs/WORKFLOWS.md#实机部署路线)执行日常操作。** 本指南保留系统概念、PC2 环境、B300 现场方案及验收要求；外部 x86/Humble 的差异已合入附录 B。各次实测结论按[实机验证状态](README.md)和设备日期查阅，不能把历史包清单当作当前部署状态。
 
+日常接入固定从[先接网线，再完成部署准备](../docs/WORKFLOWS.md#b0-先接网线再完成部署准备)开始：有线 SSH → 核对/同步仓库 → PC2 本机依赖与安装自检 → 查询当次 DHCP 无线 IP → 验证后按需切无线。
+
+部署准备完成后，转到 PC2 终端按 **01 自检 → 02 采集建图并导出核对 → 04 持续定位 → 05 网页规划** 执行。00 内置的构建后自检不替代采集前独立的 01；03 是可选仿真分支。
+
 ## 0. 本次现场决策
 
 | 项目 | 当前依据与状态 |
@@ -563,7 +567,7 @@ FAST-LIO: camera_init → body
 
 ### 7.2 初始对齐与参数
 
-`04_robot_ready.sh localize --map MAP.ply` 会交互要求 `X Y Z ROLL PITCH YAW`；可用 `--initial` 显式传入。位置用米、角度用度，初值表示 `map ← camera_init`。在当前 `odom → camera_init` 单位变换约定下，它也就是定位节点的 `map ← odom` 初始对齐。源码欧拉角按 `Rx * Ry * Rz` 组合，不能照搬另一种角度约定。
+`04_robot_ready.sh localize --map MAP.ply` 默认自动全局重定位，无需交互初值。入口静止采集三组实时点云，使用 FPFH/RANSAC 与重力对齐全图相关性搜索、ICP 精配准，拒绝低质量/歧义候选并通过独立扫描验证后才启动持续跟踪；初始化前不发布候选地图 TF。详情和证据路径见 WORKFLOWS B4。`--initial` 仅用于显式调试，位置用米、角度用度，初值表示 `map ← camera_init`。在当前 `odom → camera_init` 单位变换约定下，它也就是定位节点的 `map ← odom` 初始对齐。源码欧拉角按 `Rx * Ry * Rz` 组合，不能照搬另一种角度约定。
 
 若用 `T_A_B` 表示 B 坐标到 A 坐标的变换，应由当前参考位姿计算：`T_map_camera_init = T_map_body × inverse(T_camera_init_body)`。机体在地图上的位置与当前局部坐标系到地图的对齐并非同一个量。全零仅适用于两个坐标系实际重合的情况。
 
@@ -571,7 +575,7 @@ FAST-LIO: camera_init → body
 
 配准阈值、频率和点数上限由共享定位 launch 显式设置，参数解释见[配置参考](../docs/CONFIGURATION.md#42-三维重定位配置)。如需修改，保存本轮源码差异和 `ros2 param dump /global_localization_node`，不再复制另一份旧 `loc_real.yaml` 模板。
 
-`/initialpose` 不是通用强制重置接口：源码在已初始化且 fitness 大于 0.99 时可能忽略请求，也未按消息 header 转换初值。重新初始化应停止本轮定位入口，使用本次实测对齐重新启动。
+`/initialpose` 不是通用强制重置接口：源码在已初始化且 fitness 大于 0.99 时可能忽略请求，也未按消息 header 转换初值。重新初始化应停止本轮定位入口，再由默认自动搜索重新建立当前对齐。
 
 ### 7.3 离线定位 B 段
 

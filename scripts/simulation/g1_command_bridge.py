@@ -59,7 +59,7 @@ class Commands(Node):
   tmp.write_text(' '.join(map(str,[time.time(),self.mode,*v,source]))+'\n')
   tmp.replace(self.path)
 def main():
- rclpy.init();n=Commands()
+ rclpy.init(args=[]);n=Commands()
  try:rclpy.spin(n)
  except KeyboardInterrupt:pass
  finally:n.mode=1;n.vel=[0.,0.,0.];n.write();n.destroy_node();rclpy.try_shutdown()

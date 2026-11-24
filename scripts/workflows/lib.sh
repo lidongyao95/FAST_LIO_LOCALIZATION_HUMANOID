@@ -7,6 +7,16 @@ run_dir=
 pids=()
 labels=()
 
+# Keep offline scientific packages isolated from the ROS system interpreter.
+offline_python() {
+    if [[ -x "$repo/.deps/offline-venv/bin/python" &&
+          ( -z "${G1_PYTHON:-}" || "$G1_PYTHON" == /usr/bin/python3 ) ]]; then
+        printf '%s\n' "$repo/.deps/offline-venv/bin/python"
+    else
+        printf '%s\n' "${G1_PYTHON:-python3}"
+    fi
+}
+
 say() { printf '[%s] %s\n' "$workflow" "$*" >&2; }
 fail() {
     say "失败：$*"

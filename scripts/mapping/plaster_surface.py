@@ -11,7 +11,10 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 import numpy as np
 from scipy.ndimage import gaussian_filter
-from skimage.measure import marching_cubes
+try:
+    from skimage.measure import marching_cubes
+except ImportError:  # Ubuntu 20.04 ships scikit-image 0.16.
+    from skimage.measure import marching_cubes_lewiner as marching_cubes
 
 from g1_scan_scene import fit_map_floor
 from pcd import read_pcd

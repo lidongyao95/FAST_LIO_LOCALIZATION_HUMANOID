@@ -100,11 +100,115 @@ xdpyinfo >/dev/null && echo display-ok
 目标：用真实 G1 的传感器生成并核对现场地图，在 PC2 上持续定位，再查看网页与规划。地图预演在 Ubuntu 仿真机完成，属于可选支线，结束后回到 PC2 继续。
 
 ```text
-PC2 环境与传感器 → 现场采集 → 导出并核对实机地图 → PC2 持续定位 → Web 仅规划
+网线连接 → 部署准备与无线 IP 核对 → PC2 环境与传感器 → 现场采集 → 导出并核对实机地图 → PC2 持续定位 → Web 仅规划
                                   └→ 可选：生成扫描场景 → MuJoCo 预演 ─┘
 ```
 
-### B1. 准备 PC2 环境
+从头建图时，按以下顺序操作：
+
+1. **Mac / 部署电脑：00 部署**，依次执行 `00_pc2_setup.sh check`、`sync`、`build`。
+2. **转到 PC2 终端：01 自检**，执行 `01_self_check.sh robot`。即使 00 构建时自动自检通过，开始本轮采集前仍保留独立自检。
+3. **同一 PC2 环境：02 建图**，执行 `02_mapping.sh record <本次新名称>`，随后导出并核对地图。
+4. 地图核对后再执行 **04 持续定位 → 05 网页规划**；03 是可选仿真分支。只有明确复用已核对地图时才跳过建图。
+
+00 完成后不再通过 Mac 包装脚本启动运行链。后续脚本直接在 PC2 的本机终端或 SSH 终端执行；Mac 仅作为终端/浏览器使用。
+
+### B0. 先接网线，再完成部署准备
+
+每次现场接入先将 Mac 与机器人 PC2 接到有线网络，通过固定的机器人有线网段登录；不依赖上次的无线地址。以下 Mac 命令在本机终端执行，标为 PC2 的命令在 SSH 会话内执行。
+
+先在 Mac 的仓库根目录运行整合入口，自动完成有线 SSH、PC2 有线地址、ARM64 / Ubuntu 20.04 / Foxy 身份检查，查询无线 DHCP 状态，检查进程/服务、源码与安装产物、ROS/Python/动态库依赖，并生成反向源码差异清单与本地日志：
+
+```bash
+./scripts/real_robot/00_pc2_setup.sh check
+```
+
+失败时先按输出排查，不进入源码同步或启动阶段。当前入口只读，不停止进程或服务，不同步源码、不构建。报告中的进程/自动重启服务、缺失文件、`not found` 动态库和源码差异需逐项处理；脚本执行成功只表示检查结束，不表示部署已就绪。反向差异使用内容校验，排除构建产物、运行日志和仿真生成文件；仍需在正向同步前单独预览仅存在于 Mac 的文件。后面的源码同步与构建仍按对应步骤执行。下列手动命令用于首次配置网卡或排障。
+
+**1. 有线登录并确认设备。** Mac 有线网卡需配置一个未占用的 `192.168.123.x/24` 地址（例如确认空闲后使用 `192.168.123.100`），避开 PC2 `.164`、运控 `.161` 和雷达 `.120`；此直连网卡无需配置默认网关或 DNS。
+
+```bash
+# Mac
+ping -c 2 192.168.123.164
+ssh unitree@192.168.123.164
+# PC2：核对有线地址、架构、系统、磁盘与当前无线连接
+hostname -I
+ip -4 addr show eth0
+uname -m
+cat /etc/os-release
+df -h "$HOME"
+nmcli -f NAME,TYPE,DEVICE connection show --active
+```
+
+应确认连接的是 PC2（`eth0=192.168.123.164`、aarch64、Ubuntu 20.04 / Foxy）。SSH 不通先核对网线、Mac 网卡地址和路由，保持有线连接完成下列步骤。
+
+**2. 核对并同步仓库。** PC2 已有可用部署且本轮无源码更新时可跳过复制；首次部署先创建目录。Mac 切到本地仓库根目录执行：
+
+```bash
+# Mac
+cd /Users/lidongyao/Desktop/code/SLAM/FAST_LIO_LOCALIZATION_HUMANOID
+export PC2_WIRED=unitree@192.168.123.164
+ssh "$PC2_WIRED" 'mkdir -p ~/ldy/FAST_LIO_LOCALIZATION_HUMANOID ~/ldy/g1_real_data/{bags,maps,records,config}'
+# 后续三个 rsync 命令使用同一组排除项；不复制架构相关产物与仿真子模块。
+G1_SYNC_EXCLUDES=(
+  --exclude='.git/' --exclude='build/' --exclude='install/' --exclude='log/'
+  --exclude='.deps/sdk*' --exclude='.deps/root/' --exclude='vendor/'
+  --exclude='doc/' --exclude='tmp/'
+  --exclude='.deps/src/unitree_mujoco/' --exclude='.deps/src/unitree_rl_mjlab/'
+)
+# 已有部署先反向 dry-run：列出 PC2 与 Mac 的差异，不直接覆盖任何一端。
+rsync -ain "${G1_SYNC_EXCLUDES[@]}" "$PC2_WIRED:ldy/FAST_LIO_LOCALIZATION_HUMANOID/" ./
+```
+
+逐项确认差异来源；需要保留的 PC2 源码/配置先按清单拉回 Mac，合并后再向 PC2 同步。首次空目录可直接继续。记录本地 `git rev-parse HEAD` 和 `git status --short`，再预览并执行：
+
+```bash
+# Mac：先预览，再复制；不使用 --delete。现场地图、录包和记录单独管理。
+rsync -ain "${G1_SYNC_EXCLUDES[@]}" ./ "$PC2_WIRED:ldy/FAST_LIO_LOCALIZATION_HUMANOID/"
+rsync -ai "${G1_SYNC_EXCLUDES[@]}" ./ "$PC2_WIRED:ldy/FAST_LIO_LOCALIZATION_HUMANOID/"
+```
+
+若明确以本地为唯一基准、无需保留远端源码改动，可用整合脚本替代上面的手动同步：
+
+```bash
+# Mac 仓库根目录：有线核对后直接同步，不要求先审查反向差异。
+./scripts/real_robot/00_pc2_setup.sh sync
+```
+
+`sync` 覆盖远端同名源码，并删除同步范围内仅远端存在的旧文件；排除项保护 `.git`、构建产物、依赖二进制、现场运行日志和仿真子模块，`~/ldy/g1_real_data` 不在同步目录内。完成后自动以 checksum dry-run 校验。它不会停止进程、构建或重启程序，后续需更新受影响的本机安装。只有 `check` 模式保持全程只读。
+
+**3. 在 PC2 完成环境 setup。** 首次部署、换机或更新涉及编译的源码时，先读[PC2 历史问题汇总](../g1_real_robot_docs/debug_log/2026-11-05_g1_pc2_debug_summary.md)，再按[PC2 部署指南第 4 章](../g1_real_robot_docs/g1_real_robot_slam_pc2_b300_guide.md#4-建立可复现的软件环境)核对 Foxy、ARM64 本机依赖与构建配置。源码 rsync 副本不带 Git 元数据，需核对 Livox SDK / 驱动源码及版本是否齐全，不能假定能直接运行 submodule 初始化。已有部署优先补齐缺失依赖并只构建受影响包；Mac 的 `build/`、`install/`、SDK 和预编译库不能直接用于 PC2。
+
+远端构建必须使用 `--event-handlers console_direct+`，后台运行并保存日志；每 20–30 秒检查构建进程、日志增长及 `Finished` / `Failed` 终态，失败定位后再修复。不要原样套用 x86/Humble 的依赖路径。部署完成后执行 B1 自检，再启动感知与定位。
+
+源码同步后，在 Mac 用同一入口执行 PC2 本机构建：
+
+```bash
+./scripts/real_robot/00_pc2_setup.sh build
+```
+
+`build` 只构建已经同步到 PC2 的源码，固定 ROS 2 Foxy、ARM64 本机依赖和两路编译，依次增量构建 `livox_ros_driver2`、`fast_lio`、`open3d_loc`；恢复 Livox 的 ROS 2 `package.xml`，识别 PC2 的 `.deps/arm-open3d/open3d141`。它先检查域 223 的冲突进程，发现冲突则退出；在原启动终端结束会话后再执行，不自动清理或重启。构建锁避免同时运行两轮构建。
+
+远端 `pc2_build.sh` 使用 nohup 后台任务，日志、PID 和最终退出码保存在 `~/ldy/g1_real_data/records/builds/pc2-*/`；构建保持 `console_direct+`。每秒检查完成/进程退出，每 25 秒输出进程存活、日志大小/增长和包终态；完成立即报告，失败提取错误线索，不自动重试。SSH 断开后构建继续，可在有线恢复后读取最新目录的 `build.log`、`pid`、`status`，确认终态后再决定操作，不重复启动。
+
+三个包完成后自动执行 `01_self_check.sh robot`，核对三个可执行文件为 ARM64、`ldd` 无缺失动态库；构建或验证失败都会返回非零。通过只证明依赖和安装检查完成；仍需后续定位/传感器现场验证。本步骤不安装缺失系统依赖、不启动行走或恢复旧会话。
+
+PC2 的 Open3D 是解包到 `.deps/arm-open3d` 的 ARM 运行库，`liblapacke` / `libtmglib` 只在本地目录可见，系统 `ldconfig` 查不到；缺了它们链接 `open3d_loc` 才会报 `cannot find -ltmglib` 一类错误。因此构建入口现在先跑 `scripts/env/open3d_runtime_probe.sh`：逐个 `readelf -d` 核对本地库的传递依赖，全部可解析才把 `-Wl,-rpath-link,<runtime 目录>` 固定传给 CMake；不完整时直接打印缺哪个库、对应 apt 包和 `--fix` 命令并停止，不再等到链接期才失败。同一预检也接在 `00_pc2_setup.sh check`（构建后 `ldd` 段之后）和 `01_self_check.sh robot`（启动定位前），所以部署检查、自检、构建三处都会提前暴露这个问题。
+
+**4. 通过有线会话查询当次无线 IP。** 无线用于后续远程访问时，先确认 PC2 已连接 `sic-guest`；未连接则先在 PC2 配置该 Wi-Fi，再查询：
+
+```bash
+# PC2
+nmcli -f GENERAL.CONNECTION,IP4.ADDRESS,IP4.GATEWAY device show wlan0
+ip -4 addr show wlan0
+nmcli -f ipv4.method,ipv4.addresses connection show sic-guest
+```
+
+`sic-guest` 应为 `ipv4.method=auto`，未设置静态地址。无线使用 DHCP，`172.18.14.107` 只是 2026-11-24 的实测租约，不能写成固定连接目标。记录本次 `wlan0` 地址，在 Mac **另开终端**执行 `ssh unitree@<当次无线IP>`，核对 `hostname -I` 确认仍是同一台 PC2。首次使用新地址时核对已有可信主机公钥。只有无线 SSH 验证成功且后续操作确需无线时才拔网线；也可全程保留有线。无线不通时继续用有线排查，不修改机器人/雷达有线地址。换电、重启、重连 Wi-Fi 后重新查询。
+
+完成判据：有线 SSH 可用，源码与本机安装匹配、B1 自检通过；若要切无线，还需当次 DHCP 地址和无线 SSH 验证通过。
+
+### B1. 在 PC2 设置环境并执行 01 自检
 
 运行位置：PC2 / ARM64 / Ubuntu 20.04 / ROS 2 Foxy。Mac 用 SSH 登录，后续 PC2 命令在 SSH 会话内执行。首次部署见[PC2 部署指南](../g1_real_robot_docs/g1_real_robot_slam_pc2_b300_guide.md)；历史硬件记录按[实机文档入口](../g1_real_robot_docs/README.md)中的日期和设备区分。
 
@@ -120,6 +224,15 @@ export ROS_DOMAIN_ID=223 ROS_LOCALHOST_ONLY=1
 ./scripts/workflows/01_self_check.sh robot
 ```
 
+自检通过后会查询 `wlan0` 当次 IPv4 并打印 `ssh unitree@<当次无线IP>`。在操作电脑另开终端验证无线登录成功后，断开外部电脑连接 PC2 的有线网线，从无线会话继续 B2 建图；不要断开机器人内部或雷达网线。若无无线地址或连接失败，保留有线连接排查，重跑 01 获取新地址。 自检末尾也会打印新无线会话的环境命令；SSH 新会话不会继承上一个终端的 export，登录后执行：
+
+```bash
+cd "$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID"
+export G1_DATA="$HOME/ldy/g1_real_data"
+export ROS_DOMAIN_ID=223 ROS_LOCALHOST_ONLY=1
+```
+
+
 完成判据：所需 ROS 包和本机部署环境检查通过。此自检不查询雷达流或运控模式。换机/换架构应重新构建；源码同步与 `install/` 更新要求见[脚本索引](../scripts/README.md#部署时要一起更新什么)。
 
 ### B2. 采集并导出现场地图
@@ -131,6 +244,8 @@ PC2 执行；已有可用 PCD 时可跳过录制，直接导出：
 ```
 
 入口复用活跃的 Livox；没有雷达端点时启动已配置的驱动，并启动 FAST-LIO 和录包。按现场采集安排覆盖要导航的区域，回到终端按 Enter 保存。本入口负责采集，机器人移动按现场已有操作方式完成。
+
+按 **Enter** 才执行地图保存与结果校验；**Ctrl+C 是取消采集，不保证生成 PCD**。中断后保留的 bag/records 不要覆盖或删除，下一轮使用新名称。收到停止提示后等待清理结束，避免连续 Ctrl+C 中断收尾。
 
 完成判据：`$G1_DATA/maps/B1_run01.pcd` 保存成功，`$G1_DATA/bags/B1_run01/metadata.yaml` 中雷达和 IMU 消息数均非零。原始日志在 `$G1_DATA/records/B1_run01/`。这说明数据已落盘，地图质量还需核对。
 
@@ -152,18 +267,75 @@ PC2 执行；已有可用 PCD 时可跳过录制，直接导出：
 | `metadata.json` | 来源、分辨率、地面拟合及栅格统计 |
 | `plaster.png`、`surface.ply`、`plaster.json` | 加 `--plaster` 才生成的可视预览与地面参数 |
 
+输出目录已存在且为有效地图时，`02 export/dufo` 保留文件、不重新导出或应用参数，直接给出已有地图预览方式（退出码 3 表示未执行导出）；非有效地图目录仍报错。若网页服务及隧道已在运行，可直接打开链接。
+
+核对完成后 `02` 会同时打印两个分支，二者选一即可：**(A)** 在 PC2 执行 `./scripts/real_robot/04_robot_ready.sh localize --map <地图目录>/map.ply` 直接进入 B4；**(B)** 可选支线：先在仿真服务器上预演导航、确认路线可通过再上实机。仿真（MuJoCo、定位、Nav2）跑在 4622 服务器上（默认 `sjtu@202.121.181.124`，换机器用 `G1_SIM_HOST`/`G1_SIM_PORT` 指定）；Mac 只负责发起，在 Mac 仓库根执行 `./scripts/simulation/03_preview.sh prepare pc2:<采集 PCD> --name <名称>_preview --pc2 unitree@<当次无线IP>`，通过 SSH 把 PCD 传到服务器并生成预演场景（见 B3），Mac 本身不跑仿真。
+
+`02 export` / `dufo` 成功结束后会自动打印本次输出目录对应的网页启动命令、当次无线 IP 对应的 SSH 转发命令和浏览器地址；无需手工替换地图目录。无无线地址时会提示填写实际主机。
+
+命令行连接 PC2 时，在定位前用网页检查导出地图：
+
+```bash
+# PC2：无需先启动定位或 Nav2。仅使用系统 Python 的 OpenCV、PyYAML。
+./scripts/real_robot/05_web_navigation.sh "$G1_DATA/maps/B1_run03_map" --review --port 18082
+# Mac 另开终端：地址使用 01 输出的当次无线 IP。
+ssh -N -L 18082:127.0.0.1:18082 unitree@<当次无线IP>
+```
+
+浏览器打开 `http://127.0.0.1:18082/`。支持缩放、平移、点击查询地图坐标和空闲/占用/未知状态。核对墙、重影、门口和起点；点击不设置定位初值，不发送规划或运动请求。检查结束在 PC2 按 Ctrl+C 关闭。`--review` 不占用 ROS 域，正常 B5 网页规划保持原行为。
+
+PC2 离线自检逐项报告 SciPy、scikit-image、Matplotlib 的导入结果和版本，不打印安装路径。缺失或导入失败时，末尾给出通过清华 PyPI 镜像安装独立 `.deps/offline-venv` 的命令；使用 ARM64/Python 3.8 二进制轮子，避免更改 ROS 系统 Python。该环境存在时，offline 自检及 `02 export/dufo` 默认使用它（兼容此前 `G1_PYTHON=/usr/bin/python3` 设置）；自定义的其他 `G1_PYTHON` 仍优先。虚拟环境是 PC2 本机构建产物，源码同步排除它。
+
+普通导出与网页检查不要求先装石膏预览依赖。要生成石膏图，在 `02 export` 时加 `--plaster`；网页在二维图下加载同目录 `surface.ply` 三维网格，支持左键旋转、右键平移、滚轮缩放、俯视和重置；WebGL 不可用或无网格时回退到静态 `plaster.png`，并明确提示。为已有导出补充石膏图时，确认目录尚无 `surface.ply` 等同名产物，然后在 PC2 使用：
+
+```bash
+.deps/offline-venv/bin/python scripts/mapping/plaster_surface.py \
+  "$G1_DATA/maps/B1_run03.pcd" "$G1_DATA/maps/B1_run03_map"
+```
+
+替换为实际来源 PCD 和对应导出目录，不要混用不同采集的数据。该命令不修改二维图；生成后重启 `--review` 服务并刷新网页。石膏图是经过地面拟合/调平、裁剪和平滑的静态预览，不用于点击设置定位坐标。
+
+2026-11-24 PC2 曾发现 apt 中 `chrony` 与 `systemd-timesyncd` 冲突，导致 apt 安装预览依赖失败；未执行会移除 chrony 的自动修复。当前离线预览使用独立 Python 环境。
+
 **`--plaster` 不生成 `scene.xml`，也不会启动 MuJoCo。** 只需实时定位和网页规划时，直接进入 B4。
 
 ### B3. 可选：在仿真机预演实机地图
 
-运行位置：完成 A1 环境准备的 Ubuntu 仿真机。把已修正安装方向的 PCD 复制过去，**用独立输出目录**生成近似场景：
+02 采集、导出并核对地图后，可直接进入 B4 的 04 自动定位，也可选择本节 03 预演。PC2 不运行 MuJoCo；在 Mac 仓库根发起，PCD 经 SSH 中转到 Ubuntu 仿真服务器，MuJoCo、定位与 Nav2 全部在服务器运行。
+
+一条命令完成“读取 PC2 PCD → 上传与 SHA-256 校验 → 自动选安全起点 → 生成扫描场景和配套地图 → 启动预演”：
 
 ```bash
-export ROS_DOMAIN_ID=74 ROS_LOCALHOST_ONLY=1
-.deps/venv/bin/python scripts/mapping/g1_scan_scene.py \
-  --pcd /path/to/B1_run01.pcd --out sim/generated/B1_preview01
-./scripts/simulation/scan_preview.sh sim/generated/B1_preview01
+./scripts/simulation/03_preview.sh play pc2:/home/unitree/ldy/g1_real_data/maps/B1_run03.pcd \
+  --name B1_run03_preview_new --pc2 unitree@<当次无线IP>
 ```
+
+名称使用未创建的新名称（02 会自动打印带时间戳的命令）。`play` 的输入为 PCD 时先准备再启动；输入已有场景目录时直接启动。只想先生成而不启动，使用 `prepare`；生成后脚本打印包含本次服务器和端口的 `launch` 命令：
+
+```bash
+./scripts/simulation/03_preview.sh prepare pc2:/home/unitree/ldy/g1_real_data/maps/B1_run03.pcd \
+  --name B1_run03_preview_new --pc2 unitree@<当次无线IP>
+./scripts/simulation/03_preview.sh launch sim/generated/B1_run03_preview_new
+```
+
+无图形界面时，在 `play` 或 `launch` 命令末尾添加 `-- --headless --goal X Y`，目标在生成的仿真地图中选择。GUI 模式自动探测服务器显示会话，也可通过 `G1_SIM_DISPLAY=:N` 指定。起点从 `metadata.json` 自动传给仿真，不再退回 `(0,0)`；用 `--start X Y` 可覆盖生成起点，导航阶段覆盖需放在 `--` 后。
+
+默认 `sjtu@202.121.181.124:4622`，不可达或空闲显存不足 2 GiB 时尝试 4322；显式 `G1_SIM_HOST`/`G1_SIM_PORT` 指定时不擅自切换。默认仿真域 75，与实机域 223、常用仿真域 74 分离；可用 `G1_SIM_DOMAIN` 指定独立域，不能用 223。只读检查并选择空闲 GPU，不结束已有服务器任务。
+
+生成时选择离扫描原点最近、至少有 0.75m 净空的起点，保持独立新目录。场景生成和 MuJoCo 编译在服务器后台记录 `pid/status/generate.log`（`~/ldy/g1_real_data/records/preview/`），每 25 秒报告进程与日志增长；SSH 中断后先查看状态，不重复启动。仿真运行在前台，Ctrl+C 停止本次预演。
+
+服务器须已完成 A1 仿真环境准备；启动前检查定位程序动态库及 Nav2 包，若本机缺依赖但已有 `ros_overlay_ns.sh` 覆盖层可用，会自动在只读覆盖层中运行，不更改系统依赖；覆盖层不可用则明确报错。不会自动安装或构建。Mac/PC2 不需复制私钥；PC2 尚未配置服务器 SSH 时使用上述 Mac 中转方式即可。预演结束回到 PC2 的实机地图，执行 04；可全程跳过本节。
+
+服务器内部也可直接复用现有入口做逐步排障：
+
+```bash
+export ROS_DOMAIN_ID=75 ROS_LOCALHOST_ONLY=1
+.deps/venv/bin/python scripts/mapping/g1_scan_scene.py \
+  --pcd /path/to/B1_run01.pcd --out sim/generated/B1_preview01 --auto-start
+./scripts/simulation/03_simulation.sh nav sim/generated/B1_preview01 --start X Y
+```
+
+最后一条的起点取生成时打印的值；`03 nav` 遇到包含 `scene.xml` 的扫描场景会自动转入扫描预演实现。
 
 这里重新生成 `scene.xml` 和配套的 `map.ply/map.yaml/map.pgm`；定位图取自近似碰撞几何，地面经过调平和人工延伸。运行链是“虚拟 LiDAR/IMU → FAST-LIO → Open3D → Nav2 → 虚拟 G1”，没有接入 PC2 的实时雷达或硬件速度输出。
 
@@ -180,7 +352,11 @@ export ROS_DOMAIN_ID=74 ROS_LOCALHOST_ONLY=1
   --map "$G1_DATA/maps/B1_map01/map.ply"
 ```
 
-按提示输入本次测得的 `map ← camera_init` 初始对齐，顺序为 `X Y Z ROLL PITCH YAW`，单位米和度；也可用 `--initial` 传入。`camera_init` 是本次 FAST-LIO 启动的局部坐标系，此处初值是它到地图的对齐，不是把机体在地图上的位置直接照填。不要照抄仿真起点或 `initial_z=0.793`。
+默认自动检测机器人在地图中的位置与朝向，无需输入配准初值。启动期间保持机器人静止：入口采集三组不重叠的新鲜同步点云，在整张地图及重叠分区用 FPFH/RANSAC 与重力对齐的全图平移/朝向相关性搜索、ICP 复核；重叠率不足、误差过大、存在得分接近的不同位置、后两组扫描不一致或超时均退出，不回退到零初值、不启动持续地图定位。通过后才将 `map ← camera_init` 结果交给 Open3D 持续跟踪；持续节点初始化完成前不发布候选地图 TF/位姿。
+
+搜索最长 120 秒，扫描采集最长 20 秒。证据保存在本轮日志目录的 `global-scans/`、`global-capture.log`、`global-search.log` 和 `global-initialization.json`。多候选检查只是有界几何搜索，不能保证所有重复场景都可区分；没有足够独特结构时换到更可辨识的位置，再重新启动本轮会话。成功仍需结合网页与现场核对，不表示运动许可。
+
+`--initial X Y Z ROLL PITCH YAW` 仅保留为显式调试选项（米、度；`map ← camera_init`，旋转顺序 Rx·Ry·Rz），标准流程不要求使用。不要把机体在地图上的位置直接照填，也不要照抄历史初值。
 
 入口保留已有 FAST-LIO，或启动驱动与 FAST-LIO，再启动 Open3D 持续配准。已有旧 Open3D 或 `map → body` 对齐时会报错，先确认并结束冲突会话。保持本终端运行，另开一个完成 B1 环境设置的 PC2 终端检查：
 
@@ -194,6 +370,9 @@ export ROS_DOMAIN_ID=74 ROS_LOCALHOST_ONLY=1
 
 ### B5. 启动 Web 仅规划
 
+04 定位成功后会打印完整的下一步命令，并保存到本轮 `next-web.txt`：在操作电脑另开 SSH 终端（同时转发 18081 端口），登录后执行 `cd`、本轮 `G1_DATA`/ROS 域的 `export`，再用定位图同目录的 `map.yaml` 启动 05。最后给出浏览器地址。保持 04 终端运行；若没有配套 `map.yaml`，提示补齐地图，不替你选择其他地图。
+
+
 保持 B4 定位终端运行，在另一个完成 B1 环境设置的 PC2 终端执行：
 
 ```bash
@@ -205,6 +384,8 @@ export ROS_DOMAIN_ID=74 ROS_LOCALHOST_ONLY=1
 ```bash
 ssh -N -L 18081:127.0.0.1:18081 unitree@192.168.123.164
 ```
+
+05 就绪后会打印访问电脑上执行的完整 SSH 转发命令，自动使用当次无线地址（无无线时尝试有线地址），并给出浏览器地址。若已按 04 提示通过 `ssh -L` 建立同一端口转发，直接复用，无需再执行 `ssh -N`。
 
 打开 [Web 页面](http://127.0.0.1:18081/)。先核对位姿箭头、实时雷达点和地图是否对齐，再点选目标查看路径。
 
@@ -243,7 +424,7 @@ G1_PYTHON=/path/to/dufomap-venv/bin/python \
   ./scripts/workflows/02_mapping.sh dufo /path/to/scans /path/to/B1_clean01 --d-p 1 --plaster
 ```
 
-`X Y Z` 是当前挂载与 FAST-LIO 配置下 LiDAR 在 `body` 中的实测平移（米）。采集可用 `--idle-timeout` 代替固定帧数。后处理使用 `dufomap==1.1.1`，历史环境为 Linux x86_64，可复制扫描到兼容机器处理。默认 `--d-s 0.2` m、`--d-p 2` 体素；`--d-p 1` 是示例候选，需核对误删情况。独立清空复扫可用 `--revisit-after STAMP_NS` 指定起始纳秒时间戳，见[验证记录](superpowers/plans/2026-11-05-dufomap-sim.md)。
+`X Y Z` 是当前挂载与 FAST-LIO 配置下 LiDAR 在 `body` 中的实测平移（米）。采集可用 `--idle-timeout` 代替固定帧数。后处理使用 `dufomap==1.1.1`，该版本没有 ARM64 安装包，PC2 采集扫描后复制到 Linux x86_64 处理机处理；offline 自检末尾会给出隔离环境、清华 PyPI 镜像安装及导入验证命令，并在 PC2 明确提示不要原地执行 x86_64 安装。默认 `--d-s 0.2` m、`--d-p 2` 体素；`--d-p 1` 是示例候选，需核对误删情况。独立清空复扫可用 `--revisit-after STAMP_NS` 指定起始纳秒时间戳，见[验证记录](superpowers/plans/2026-11-05-dufomap-sim.md)。
 
 ## ROS 域、日志与结束会话
 

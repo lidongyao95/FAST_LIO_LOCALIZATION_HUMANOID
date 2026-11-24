@@ -176,7 +176,7 @@ def main():
         p.error('--moving-speed must be positive and finite')
     if args.model_path is None:
         generate(args.fixed_obstacle, args.moving_to is not None)
-    rclpy.init()
+    rclpy.init(args=[])
     node=WalkingSim(args.domain,args.start_x,args.start_y,args.start_yaw,
                     args.obstacle_x,args.obstacle_y,args.model_path,
                     args.fixed_obstacle,args.moving_to,args.moving_speed,

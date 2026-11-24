@@ -10,12 +10,14 @@ usage() {
   03_simulation.sh nav MAP_DIR [导航参数]
 先在内置 MuJoCo 房间中采集虚拟 LiDAR/IMU。地图目录生成后重启做定位和导航。
 默认仿真域 74，仅本机通信。Ctrl+C 停止本轮进程。
+实机地图预演请用 Mac 侧入口：scripts/simulation/03_preview.sh prepare|play。
 
 导航参数：
 EOF
     navigation_options
     echo '  --moving-obstacle                在内置房间启用巡逻障碍'
 }
+
 
 run_mapping() {
     local direction duration extra status
@@ -88,7 +90,9 @@ if [[ "$stage" == map ]]; then
     (($# == 0)) || usage_error "未知建图参数 $1"
     run_mapping
 else
-    [[ ! -e "$map_dir/scene.xml" ]] || usage_error "扫描场景目录请用 scripts/simulation/scan_preview.sh"
+    if [[ -f "$map_dir/scene.xml" ]]; then
+        exec bash "$repo/scripts/simulation/scan_preview.sh" "$map_dir" "$@"
+    fi
     check_file "$map_dir/map.pcd"
     initial_z=0.0
     parse_navigation "$@"

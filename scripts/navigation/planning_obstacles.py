@@ -282,10 +282,16 @@ class RosPlanningObstacles(ObstacleGate):
         if self.geometry is None:
             raise RuntimeError('等待代价地图的高度与距离配置')
         frame, low, high, distance = self.geometry
+        stamp = Time.from_msg(cloud.header.stamp)
         try:
-            tf = self.tf_buffer.lookup_transform(frame, cloud.header.frame_id, Time.from_msg(cloud.header.stamp))
+            tf = self.tf_buffer.lookup_transform(frame, cloud.header.frame_id, stamp)
         except TransformException as exc:
-            raise RuntimeError('等待当前点云时间戳的定位 TF') from exc
+            # 定位 TF 由配准线程按里程计时间戳发布，可能比当前帧点云晚到几十毫秒，
+            # 直接按点云时间戳查询会抛 future 外插；退回最新可用变换，避免规划障碍输入整段失效。
+            try:
+                tf = self.tf_buffer.lookup_transform(frame, cloud.header.frame_id, Time())
+            except TransformException:
+                raise RuntimeError('等待当前点云时间戳的定位 TF') from exc
         t, q = tf.transform.translation, tf.transform.rotation
         marked, rays, stats = filter_cloud(cloud, self.thresholds,
             ([t.x, t.y, t.z], [q.x, q.y, q.z, q.w]), low, high, distance)

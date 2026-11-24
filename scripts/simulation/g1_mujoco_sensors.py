@@ -193,7 +193,7 @@ def main():
     generate()
     if args.generate_only:
         return
-    rclpy.init()
+    rclpy.init(args=[])
     node = Sensors(args.move, transient_obstacle=args.transient_obstacle)
     viewer = None
     if not args.headless:

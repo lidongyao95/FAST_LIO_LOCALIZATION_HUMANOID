@@ -109,7 +109,7 @@ def main():
  parser.add_argument('--obstacle-clear-after',type=float,default=None)
  parser.add_argument('--keep-nav',action='store_true')
  parser.add_argument('--output',default=str(ROOT/'sim/generated/nav_goal_validation.json'))
- args=parser.parse_args();rclpy.init();n=Probe();result={'goal':[args.x,args.y,args.yaw]}
+ args=parser.parse_args();rclpy.init(args=[]);n=Probe();result={'goal':[args.x,args.y,args.yaw]}
  try:
   assert n.spin_until(lambda:n.truth and n.odom and n.conf>=.6,10),'localization unavailable'
   if n.controller_mode()!=3:

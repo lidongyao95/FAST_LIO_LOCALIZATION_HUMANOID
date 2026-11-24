@@ -1,7 +1,7 @@
 # G1 PC2 实机逐步运行 · 静止自动对齐与仅规划
 
 日常运行优先走[实机部署路线](../docs/WORKFLOWS.md#实机部署路线)：`04_robot_ready.sh localize`
-启动持续配准，再用 `05_web_navigation.sh` 启动网页。下文保留静止自动求初值、静态 TF 和逐组件排障方法。
+默认自动全局重定位并验证三组扫描后启动持续配准，再用 `05_web_navigation.sh` 启动网页；不要求手工初值。下文保留历史静止求初值、静态 TF 和逐组件排障方法，不是日常必经步骤。
 静态对齐与 Open3D 持续配准二选一负责地图对齐；切换到持续配准前停止旧静态发布器。
 本页的 `hang_A_02_plaster_preview` 是历史数据目录名，不表示正在运行 MuJoCo。
 
@@ -21,12 +21,13 @@ PC2 上应有配套的 `$MAP/{clean.pcd,map.yaml,map.pgm}`，来源为 4322 的
 `~/ldy/hang-a02-filter-comparison/plaster-map/`。核对 SHA-256，保持同一组地图。
 运行 `ping -c 2 192.168.123.120` 和 `chronyc tracking`。现场保持静止至步骤 6 结束。
 
-Mac 到 PC2 有两条路径，任选其一：
+首次接入或换电后先按[有线接入与部署准备](../docs/WORKFLOWS.md#b0-先接网线再完成部署准备)完成网线登录、源码/环境核对和当次无线 IP 查询。确认无线 SSH 可用后，后续可保留有线或改用无线：
 
-- 同一 Wi-Fi：PC2 的 `wlan0` 与 Mac 同在 `172.18.0.0/16`，可直接 `ssh unitree@172.18.17.116`，
-  也可用 `ubuntu.local`（mDNS，实测可解析）。该地址是 DHCP 租约，重连后可能变化，先用
-  `ping -c 2 ubuntu.local` 或请人在 PC2 上 `hostname -I` 确认。ROS 侧不受影响：
-  域 223 已设 `ROS_LOCALHOST_ONLY=1`，DDS 不出 PC2 回环，跨机流量只有网页的 SSH 隧道。
+- 无线连接：`sic-guest` 使用 DHCP，PC2 没有固定无线 IP。先在 PC2 用
+  `hostname -I` / `ip -4 addr show wlan0` 核对当次地址，再运行 `ssh unitree@<当次无线IP>`。
+  2026-11-24 实测为 `172.18.14.107/20`，此前 `172.18.17.116` 仅为历史租约。
+  `ubuntu.local` 可作为 mDNS 候选，但需核对实际解析结果和路由；不能假定无线双方总在同一子网。
+  ROS 域 223 已设 `ROS_LOCALHOST_ONLY=1`，DDS 不出 PC2 回环，跨机流量只有网页的 SSH 隧道。
 - 有线直连：Mac 的 `ifconfig` 里出现 `192.168.123.x`（本轮为 `.100`），PC2 为 `192.168.123.164`。
   没接网线时 PC2 的 22 端口即使能建立连接，也会在 `kex_exchange_identification` 阶段被对端断开，
   同时 `ping` 全丢包；这种情况先查网线，不要去查 sshd。
@@ -119,7 +120,7 @@ ros2 launch "$REPO/open3d_loc/launch/g1_navigation.launch.py" \
   "repo:=$REPO" "map_yaml:=$MAP/map.yaml" mode:=plan robot_frame:=body use_sim_time:=false rviz:=false
 ```
 
-另开 Mac 终端建立网页隧道（走 Wi-Fi 时把地址换成 `172.18.17.116` 或 `ubuntu.local`）：
+另开 Mac 终端建立网页隧道（走 Wi-Fi 时把地址换成已核对的当次 DHCP 地址；`ubuntu.local` 需先核对解析结果）：
 
 ```bash
 ssh -t -o ExitOnForwardFailure=yes -L 127.0.0.1:18085:127.0.0.1:18085 unitree@192.168.123.164
@@ -162,4 +163,4 @@ Mac 可查询 `/api/state` 的 `costmap` 版本是否变化。结束时在各启
 
 ## 已知地图下的连续定位
 
-已有三维地图时，真机定位、实时网页和导航联调默认使用 Open3D 持续配准。前述静止对齐用于给当前 FAST-LIO 会话提供初值。Open3D 初始化并进入稳态后，由它发布 `map → odom`，通过 `odom → camera_init → body` 给网页和仅规划提供地图位姿。切换时停掉旧的 `map → camera_init` 静态发布器。正式验收采用实测安装外参与独立参考位姿。纯 FAST-LIO 用于建图、隔离诊断和对照实验。见[本轮分析](debug_log/2026-11-10_pc2_live_nav_web.md#重启复测与-open3d-使用约定)。
+已有三维地图时，真机定位、实时网页和导航联调默认使用 Open3D 持续配准。日常 `04` 默认自动全局搜索并验证初值；前述静止对齐仅保留为历史排障方式。Open3D 初始化并进入稳态后，由它发布 `map → odom`，通过 `odom → camera_init → body` 给网页和仅规划提供地图位姿。切换时停掉旧的 `map → camera_init` 静态发布器。正式验收采用实测安装外参与独立参考位姿。纯 FAST-LIO 用于建图、隔离诊断和对照实验。见[本轮分析](debug_log/2026-11-10_pc2_live_nav_web.md#重启复测与-open3d-使用约定)。

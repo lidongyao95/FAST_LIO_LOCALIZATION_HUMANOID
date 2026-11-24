@@ -22,14 +22,14 @@ def main():
     import rclpy
     from lifecycle_msgs.srv import GetState
     from nav_msgs.msg import OccupancyGrid, Odometry
-    from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
     from rclpy.time import Time
     from rosgraph_msgs.msg import Clock
     from sensor_msgs.msg import Imu, PointCloud2
     from std_msgs.msg import Bool
     from tf2_ros import Buffer, TransformException, TransformListener
 
-    rclpy.init()
+    rclpy.init(args=[])
     node = rclpy.create_node(f"g1_workflow_probe_{os.getpid()}")
     check = args.check
     seen = {}
@@ -66,8 +66,11 @@ def main():
             watch(topic, CustomMsg, lambda msg: msg.point_num > 0)
         watch("/livox/imu", Imu)
     if check == "lio":
-        watch("/Odometry_loc", Odometry, lambda msg: msg.header.frame_id == "camera_init" and msg.child_frame_id == "body")
-        watch("/cloud_registered_body_1", PointCloud2, lambda msg: msg.width > 0 and msg.header.frame_id == "body")
+        # FAST-LIO publishes both outputs RELIABLE; a best-effort sensor profile
+        # drops the point cloud here and the readiness gate flaps.
+        outputs = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE)
+        watch("/Odometry_loc", Odometry, lambda msg: msg.header.frame_id == "camera_init" and msg.child_frame_id == "body", outputs)
+        watch("/cloud_registered_body_1", PointCloud2, lambda msg: msg.width > 0 and msg.header.frame_id == "body", outputs)
     if check == "clock":
         watch("/clock", Clock, lambda msg: msg.clock.sec != 0 or msg.clock.nanosec != 0)
     if check == "localized":
@@ -154,7 +157,9 @@ def main():
         return 1
     finally:
         node.destroy_node()
-        rclpy.try_shutdown()
+        # Foxy try_shutdown only closes the context; shutdown also releases
+        # the global executor before Python tears down the signal module.
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":

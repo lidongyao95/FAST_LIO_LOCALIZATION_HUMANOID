@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seconds', type=float, default=15.)
     args = parser.parse_args()
-    rclpy.init()
+    rclpy.init(args=[])
     node = rclpy.create_node('check_g1_localization')
     counts, latest, truth, poses = {}, {}, deque(maxlen=1000), []
 

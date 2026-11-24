@@ -44,7 +44,7 @@ def category(argv):
     # Retired bridges may still be running from an older deployment.
     if subject.startswith('g1_') and subject.endswith('_bridge.py'):
         return 'simulation' if subject == 'g1_command_bridge.py' else 'navigation'
-    if subject == 'global_localization_node' or 'g1_walking_localization.launch.py' in names:
+    if subject in ('global_localization_node', 'global_initialize', 'capture_global_scans.py') or 'g1_walking_localization.launch.py' in names:
         return 'localization'
     if subject == 'static_transform_publisher':
         aliases = ('odom_to_camera_init', 'base_link_to_imu_link', 'base_link_to_motion_link')

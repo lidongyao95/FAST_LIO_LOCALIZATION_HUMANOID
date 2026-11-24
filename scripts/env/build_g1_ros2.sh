@@ -23,6 +23,12 @@ ARCH="$(uname -m)"
 # are needed until Open3D is available for aarch64.
 G1_BUILD_PACKAGES="${G1_BUILD_PACKAGES:-livox_ros_driver2 fast_lio open3d_loc}"
 
+# rsync source-only deployment removes the generated ROS-edition manifest.
+livox_driver="$REPO_ROOT/.deps/src/livox_ros_driver2"
+if [[ -f "$livox_driver/package_ROS2.xml" ]]; then
+    cp -f "$livox_driver/package_ROS2.xml" "$livox_driver/package.xml"
+fi
+
 required_paths=(
     "$ROS_SETUP"
     .deps/src/livox_ros_driver2/package.xml
@@ -64,6 +70,7 @@ fi
 OPEN3D_DIR=""
 if [[ " $G1_BUILD_PACKAGES " == *" open3d_loc "* ]]; then
     for candidate in \
+        "$REPO_ROOT/.deps/arm-open3d/open3d141/lib/cmake/Open3D" \
         "$REPO_ROOT/.deps/root/usr/lib/${ARCH}-linux-gnu/cmake/Open3D" \
         /usr/local/lib/cmake/Open3D \
         /usr/lib/${ARCH}-linux-gnu/cmake/Open3D; do
@@ -100,6 +107,31 @@ cmake_args=(
 if [[ -n "$OPEN3D_DIR" ]]; then
     cmake_args+=(-DOpen3D_DIR="$OPEN3D_DIR")
 fi
+# 解包式 Open3D 的传递依赖（lapacke -> tmglib 等）只存在于 .deps 本地目录，
+# 链接器和运行时都看不到。构建前先确认全部可解析，避免编到一半才报
+# "cannot find -ltmglib"；缺失时给出可执行的补齐命令。
+if [[ " $G1_BUILD_PACKAGES " == *" open3d_loc "* ]]; then
+    open3d_probe="$REPO_ROOT/scripts/env/open3d_runtime_probe.sh"
+    if [[ -f "$open3d_probe" ]]; then
+        if probe_report="$(bash "$open3d_probe" 2>&1)"; then
+            eval "$(bash "$open3d_probe" --env)"
+            if [[ -n "${OPEN3D_RUNTIME_LIB:-}" ]]; then
+                cmake_args+=("-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath-link,$OPEN3D_RUNTIME_LIB")
+                echo "Open3D 链接搜索路径：$OPEN3D_RUNTIME_LIB"
+            fi
+        else
+            probe_status=$?
+            printf '%s\n' "$probe_report" >&2
+            if ((probe_status == 1)); then
+                echo "Open3D 传递依赖不完整：链接会在上述库处中断；先按提示补齐再重新构建。" >&2
+            else
+                echo "未找到可用的本地 Open3D 运行库（.deps/arm-open3d/runtime 或 .deps/root）。" >&2
+            fi
+            exit 1
+        fi
+    fi
+fi
+
 
 echo "ROS distro: $ROS_DISTRO | arch: $ARCH | packages: $G1_BUILD_PACKAGES"
 colcon build \
@@ -117,7 +149,8 @@ if [[ " $G1_BUILD_PACKAGES " == *" fast_lio "* ]]; then
     expected_outputs+=(install/fast_lio/lib/fast_lio/fastlio_mapping)
 fi
 if [[ " $G1_BUILD_PACKAGES " == *" open3d_loc "* ]]; then
-    expected_outputs+=(install/open3d_loc/lib/open3d_loc/global_localization_node)
+    expected_outputs+=(install/open3d_loc/lib/open3d_loc/global_localization_node
+                       install/open3d_loc/lib/open3d_loc/global_initialize)
 fi
 for output in "${expected_outputs[@]}"; do
     if [[ ! -e "$output" ]]; then

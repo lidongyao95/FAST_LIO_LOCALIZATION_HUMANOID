@@ -74,7 +74,7 @@ def main():
     scene.write(path)
     args.truth.write_text(json.dumps({"seed": args.seed, "centers": centers.tolist(),
                                      "half_size": BOX_HALF_SIZE}))
-    rclpy.init()
+    rclpy.init(args=[])
     node = LoopSensors(path, centers, args.perimeter)
     duration = WARMUP + 2 * PERIOD + 2
     if args.perimeter:

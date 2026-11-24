@@ -186,7 +186,7 @@ def main():
    p.error('drive requires a direction and --seconds between 1 and 30')
  elif args.direction is not None or args.seconds is not None:
   p.error('direction and --seconds are only for drive')
- rclpy.init();node=Operator()
+ rclpy.init(args=[]);node=Operator()
  try:
   if args.action=='prepare':node.prepare()
   elif args.action=='enable-nav':node.enable_nav()

@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import sys
 import xml.etree.ElementTree as ET
 import numpy as np
 
@@ -66,6 +67,21 @@ def fit_map_floor(xyz):
     return floor_transform(sample, ground_z_max=cutoff)
 
 
+def choose_spawn(collision, radius):
+    """Return the free spawn nearest the scan origin, with 0.75 m clearance."""
+    limit = radius - 0.6
+    grid = np.arange(-limit, limit + 1e-9, 0.25)
+    candidates = np.array([(x, y) for x in grid for y in grid])
+    candidates = candidates[np.linalg.norm(candidates, axis=1) <= limit]
+    distance = np.sqrt(((candidates[:, None, :] - collision[None, :, :2]) ** 2).sum(-1)).min(1)
+    free = candidates[distance >= 0.75]
+    clearance = distance[distance >= 0.75]
+    if not free.size:
+        raise ValueError("No free spawn with 0.75 m clearance inside the crop radius")
+    order = np.lexsort((-clearance, np.linalg.norm(free, axis=1)))
+    return free[order[0]], float(clearance[order[0]])
+
+
 def build(args, start=(0.0, 0.0)):
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -85,6 +101,12 @@ def build(args, start=(0.0, 0.0)):
     collision = (cells[counts >= 2] + 0.5) * 0.25
     if not len(collision):
         raise ValueError("No supported obstacle voxels; scene needs manual inspection")
+    if getattr(args, "auto_start", False):
+        start, clearance = choose_spawn(collision, args.radius)
+        print(
+            f"auto spawn {start[0]:.2f} {start[1]:.2f} clearance {clearance:.2f} m",
+            file=sys.stderr,
+        )
     if np.any(
         (np.linalg.norm(collision[:, :2] - start, axis=1) < 0.6) & (collision[:, 2] < 1.8)
     ):
@@ -156,7 +178,10 @@ def build(args, start=(0.0, 0.0)):
     )
     ET.SubElement(world, "body", name="support", mocap="true", pos=f"{start[0]} {start[1]} .793")
     eq = ET.SubElement(scene, "equality")
-    ET.SubElement(eq, "weld", body1="support", body2="pelvis", solref=".004 1")
+    # The robot qpos is moved to spawn by WalkingSim after MJCF compilation.
+    # An implicit relpose would retain the pre-spawn offset and pull it back.
+    ET.SubElement(eq, "weld", body1="support", body2="pelvis",
+                  relpose="0 0 0 1 0 0 0", solref=".004 1")
     path = out / "scene.xml"
     ET.ElementTree(scene).write(path)
     metadata = {
@@ -244,6 +269,11 @@ def main():
     parser.add_argument("--out", type=Path, default=ROOT / "sim/generated/real_scan")
     parser.add_argument("--radius", type=float, default=8.0)
     parser.add_argument("--start", type=float, nargs=2, metavar=("X", "Y"), default=(0.0, 0.0))
+    parser.add_argument(
+        "--auto-start",
+        action="store_true",
+        help="spawn on the free point nearest the scan origin instead of (0, 0)",
+    )
     args = parser.parse_args()
     if not np.isfinite(args.radius) or not 1 <= args.radius <= 20:
         parser.error("radius must be finite and between 1 and 20 metres")
