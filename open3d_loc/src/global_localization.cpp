@@ -34,6 +34,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <thread>
+#include <atomic>
 // #include <pcl/common/transforms.h>
 
 #include <Eigen/Core>
@@ -221,7 +222,7 @@ private:
     int maxpoints_target_ = 200000;
 
     /// @brief 初始化成功标志
-    bool loc_initialized_ = false;
+    std::atomic<bool> loc_initialized_{false};
 
     /// @brief 当前定位overlap，confidence
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_registration_result_;
@@ -515,6 +516,9 @@ void GloabalLocalization::CallbackBaselink2Odom(const nav_msgs::msg::Odometry::S
 
     mat_baselink2odom_ = mat_imulink2odom * mat_imulink2baselink_.inverse();
 
+    // Search/local initialization must not expose an unvalidated map pose or TF.
+    if (!loc_initialized_.load()) return;
+
     Eigen::Isometry3d Isometry3d_baselink2map;
     mat_baselink2map_ = mat_odom2map_ * mat_baselink2odom_;
     Isometry3d_baselink2map.matrix() = mat_baselink2map_;
@@ -714,7 +718,7 @@ void GloabalLocalization::LocalizationInitialize()
         {
             /// 获取最新关系
             mat_baselink2odom_cur = mat_baselink2odom_;
-            mat_baselink2map_cur = mat_baselink2map_;
+            mat_baselink2map_cur = mat_odom2map_ * mat_baselink2odom_cur;
             *pcd_scan = *pcd_scan_cur_;
             lock_scan_.unlock();
             lock_mat_odom2map_.lock();
@@ -828,6 +832,7 @@ void GloabalLocalization::Localization()
     /****初始化定位****/
     mat_odom2map_ = mat_initialpose_; /// 初始位姿，从目前是从配置文件给
     LocalizationInitialize();
+    if (!rclcpp::ok()) return;
 
     /// 卡尔曼滤波初始化
     /// 使用当前 baselink2map 位置初始化卡尔曼滤波器

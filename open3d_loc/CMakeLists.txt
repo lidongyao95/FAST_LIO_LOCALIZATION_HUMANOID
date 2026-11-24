@@ -139,6 +139,11 @@ ament_target_dependencies(global_localization_node
         pcl_conversions
 )
 
+# No ROS publishers: automatic global bootstrap before the tracking node starts.
+add_executable(global_initialize src/global_initialize.cpp)
+target_link_libraries(global_initialize ${Open3D_LIBRARIES})
+install(TARGETS global_initialize DESTINATION lib/${PROJECT_NAME})
+
 # Install targets
 install(TARGETS
         open3d_registration
