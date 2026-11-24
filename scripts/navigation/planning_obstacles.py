@@ -391,7 +391,7 @@ class RosPlanningObstacles(ObstacleGate):
                  and not values[19].bool_value and values[20].bool_value
                  and values[21].double_value == 0.0)
         if not valid:
-            raise RuntimeError('全局代价地图配置不匹配，请使用更新后的仅规划入口')
+            raise RuntimeError('全局代价地图配置不匹配，请使用更新后的 05 网页导航入口')
         distance = values[14] if os.environ.get('ROS_DISTRO') == 'foxy' else values[15]
         if distance.type != ParameterType.PARAMETER_DOUBLE or not math.isfinite(distance.double_value) or distance.double_value <= 0:
             raise RuntimeError('代价地图距离参数无效')
