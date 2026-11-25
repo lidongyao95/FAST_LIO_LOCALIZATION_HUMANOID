@@ -73,6 +73,13 @@ simulation_preflight() {
     if "$rviz"; then
         ros_packages rviz2
         [[ -n "${DISPLAY:-}" ]] || fail "没有 DISPLAY；请选择图形桌面或使用 --headless"
+        if [[ -n "$model_path" ]]; then
+            local graphics_report renderer
+            graphics_report=$(glxinfo -B 2>&1) || fail "无法检查 OpenGL 渲染器：$graphics_report"
+            renderer=$(printf '%s\n' "$graphics_report" | sed -n 's/^OpenGL renderer string: //p')
+            [[ "$renderer" == *NVIDIA* ]] || fail "当前图形渲染器不是 NVIDIA：$renderer"
+            say "GPU 图形渲染：$renderer"
+        fi
     fi
     for artifact in .deps/venv/bin/python .deps/controller-build/g1_ctrl .deps/controller-build/libg1_dds_bridge.so .deps/g1-controller/config.yaml; do
         check_file "$repo/$artifact"
@@ -149,4 +156,35 @@ PY
         if "$headless"; then return; fi
     fi
     session_wait
+}
+
+
+load_plaster_scene() {
+    model_path="$map_dir/scene.xml"
+    initial_z=0.793
+    local spawn scene_x scene_y
+spawn=$("${G1_PYTHON:-python3}" - "$map_dir/metadata.json" <<'PYSPAWN'
+import json, math, sys
+from pathlib import Path
+import xml.etree.ElementTree as ET
+metadata = Path(sys.argv[1])
+info = json.loads(metadata.read_text())
+if info.get('scene_representation') != 'continuous plaster mesh':
+    raise SystemExit('所选目录是旧版或非石膏场景；请用 03_generate_scene.sh 生成石膏场景，勿使用旧 _preview 目录')
+root = ET.parse(metadata.with_name('scene.xml')).getroot()
+geoms = list(root.iter('geom'))
+if any(g.get('name', '').startswith(('scan_visual_', 'scan_collision_')) for g in geoms):
+    raise SystemExit('检测到旧扫描体素几何，已阻止启动')
+contacts = [g for g in geoms if g.get('name', '').startswith('plaster_collision_')]
+if not contacts or any(g.get('type') != 'mesh' or g.get('group') != '3' for g in contacts):
+    raise SystemExit('缺少沿石膏表面的 mesh 碰撞几何，已阻止启动')
+print(f"[场景] {metadata.parent}；连续石膏网格，{len(contacts)} 个表面三角碰撞片，无扫描体素盒", file=sys.stderr)
+spawn = info['spawn_xy_m']
+if len(spawn) != 2 or not all(math.isfinite(float(v)) for v in spawn):
+    raise SystemExit('Invalid spawn_xy_m')
+print(*(float(v) for v in spawn))
+PYSPAWN
+) || fail "场景或出生点检查失败，请按上方提示处理"
+read -r scene_x scene_y <<<"$spawn"
+parse_navigation --start "$scene_x" "$scene_y" "$@"
 }

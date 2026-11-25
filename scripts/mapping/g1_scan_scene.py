@@ -86,21 +86,22 @@ def build(args, start=(0.0, 0.0)):
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     raw = read_pcd(args.pcd).astype(float)
-    points, T, floor = floor_transform(raw)
-    points = points[
-        (np.linalg.norm(points[:, :2], axis=1) < args.radius)
-        & (points[:, 2] > -0.12)
-        & (points[:, 2] < 2.5)
-    ]
-    # Small visual voxels preserve the scan without treating a convex hull as a room.
-    cells = np.unique(np.floor(points / 0.09).astype(int), axis=0)
-    visual = (cells + 0.5) * 0.09
-    obs = points[(points[:, 2] > 0.18) & (points[:, 2] < 2.3)]
-    cells = np.floor(obs / 0.25).astype(int)
-    cells, counts = np.unique(cells, axis=0, return_counts=True)
-    collision = (cells[counts >= 2] + 0.5) * 0.25
+    _, T, floor = fit_map_floor(raw)
+    from scene_filters import prepare
+    points, filter_report = prepare(raw, T, args, out)
+    from plaster_geometry import reconstruct, sample_surface, write_obj
+    vertices, faces = reconstruct(
+        points, args.radius, pitch=args.plaster_grid, max_faces=args.max_faces,
+        ground_cut=args.plaster_ground_cut, height=args.plaster_height)
+    write_obj(out / "plaster.obj", vertices, faces)
+    surface_points = sample_surface(vertices, faces)
+    collision = surface_points[(surface_points[:, 2] > .12)
+                               & (surface_points[:, 2] < 1.8)]
     if not len(collision):
-        raise ValueError("No supported obstacle voxels; scene needs manual inspection")
+        raise ValueError("No plaster surfaces within robot collision height")
+    # Clearance checks need surface samples, not axis-aligned collision boxes.
+    collision = np.unique(np.round(collision / .08).astype(int), axis=0) * .08
+    print(f"plaster surface: {len(vertices)} vertices, {len(faces)} triangles", flush=True)
     if getattr(args, "auto_start", False):
         start, clearance = choose_spawn(collision, args.radius)
         print(
@@ -111,7 +112,7 @@ def build(args, start=(0.0, 0.0)):
         (np.linalg.norm(collision[:, :2] - start, axis=1) < 0.6) & (collision[:, 2] < 1.8)
     ):
         raise ValueError(
-            "Scan obstacles overlap robot spawn; choose another spawn after inspection"
+            "Plaster surface overlaps robot spawn; choose another spawn after inspection"
         )
     robot = ROOT / ".deps/src/unitree_mujoco/unitree_robots/g1/g1_29dof.xml"
     scene = ET.Element("mujoco", model="G1 scan navigation scene")
@@ -139,31 +140,24 @@ def build(args, start=(0.0, 0.0)):
     def fmt(p):
         return " ".join(f"{x:.6f}" for x in p)
 
-    for i, p in enumerate(visual):
-        color = [0.20 + 0.5 * min(max(p[2] / 2, 0), 1), 0.72, 0.84, 1]
-        ET.SubElement(
-            world,
-            "geom",
-            name=f"scan_visual_{i}",
-            type="box",
-            pos=fmt(p),
-            size=".025 .025 .025",
-            rgba=fmt(color),
-            contype="0",
-            conaffinity="0",
-            group="2",
-        )
-    for i, p in enumerate(collision):
-        ET.SubElement(
-            world,
-            "geom",
-            name=f"scan_collision_{i}",
-            type="box",
-            pos=fmt(p),
-            size=".125 .125 .125",
-            rgba=".95 .45 .12 .25",
-            group="3",
-        )
+    asset = ET.SubElement(scene, "asset")
+    ET.SubElement(asset, "mesh", name="plaster_surface", file=str(out / "plaster.obj"))
+    ET.SubElement(world, "geom", name="plaster_surface", type="mesh",
+                  mesh="plaster_surface", rgba=".92 .90 .85 1", group="2",
+                  contype="0", conaffinity="0")
+    # MuJoCo convexifies mesh contacts. A single room mesh would seal concavities.
+    # Use one 8-mm triangle prism per face; these preserve holes and passages.
+    for i, tri in enumerate(vertices[faces]):
+        center = tri.mean(axis=0)
+        normal = np.cross(tri[1] - tri[0], tri[2] - tri[0])
+        normal /= np.linalg.norm(normal)
+        prism = np.concatenate([tri - center + normal * .004,
+                                tri - center - normal * .004])
+        ET.SubElement(asset, "mesh", name=f"plaster_contact_{i}",
+                      vertex=fmt(prism.ravel()))
+        ET.SubElement(world, "geom", name=f"plaster_collision_{i}",
+                      type="mesh", mesh=f"plaster_contact_{i}", pos=fmt(center),
+                      rgba=".92 .90 .85 1", group="3")
     dynamic = ET.SubElement(
         world, "body", name="nav_dynamic_obstacle", mocap="true", pos="0 0 -5"
     )
@@ -189,37 +183,31 @@ def build(args, start=(0.0, 0.0)):
         "scene": str(path),
         "world_from_camera_init": T.tolist(),
         "floor_fit": floor,
-        "visual_voxels": len(visual),
-        "collision_voxels": len(collision),
+        "filters": filter_report["parameters"],
+        "filter_report": str(out / "filter_report.json"),
+        "filtered_source": str(out / "filtered.pcd"),
+        "scene_representation": "continuous plaster mesh",
+        "surface_vertices": len(vertices),
+        "surface_triangles": len(faces),
+        "collision_thickness_m": .008,
         "crop_radius_m": args.radius,
+        "map_resolution_m": args.resolution,
         "spawn_xy_m": list(start),
         "floor_is_assumed_flat_extension": True,
-        "collision_model": "0.25m occupied voxels with >=2 samples, not a watertight reconstruction",
+        "collision_model": "8mm triangular prisms following the plaster surface; no voxel boxes",
         "startup": "scripts/simulation/start_walking_sim.sh --model-path scene.xml; controller/localization/Nav2 stages required",
     }
-    export_navigation(out, collision, args.radius)
+    export_navigation(out, surface_points, args.radius, args.resolution)
     metadata["navigation_map_source"] = (
-        "same approximated collision geometry; artificial planar floor treated as free"
+        "sampled plaster surface; artificial planar floor treated as free"
     )
     (out / "metadata.json").write_text(json.dumps(metadata, indent=2))
     return path
 
 
-def export_navigation(out, collision, radius):
-    # Match map and ray-cast geometry; do not register against a different raw scan.
-    samples = []
-    for pos in collision:
-        for axis in range(3):
-            a, b = [i for i in range(3) if i != axis]
-            u, v = np.meshgrid(
-                np.linspace(-0.125, 0.125, 4), np.linspace(-0.125, 0.125, 4)
-            )
-            for sign in (-1, 1):
-                p = np.tile(pos, (u.size, 1))
-                p[:, axis] += sign * 0.125
-                p[:, a] += u.ravel()
-                p[:, b] += v.ravel()
-                samples.append(p)
+def export_navigation(out, collision, radius, resolution=.05):
+    # Same surface as visual geometry and thin triangle contacts.
+    samples = [collision]
     x, y = np.meshgrid(
         np.arange(-radius, radius, 0.15), np.arange(-radius, radius, 0.15)
     )
@@ -230,7 +218,6 @@ def export_navigation(out, collision, radius):
             f"ply\nformat ascii 1.0\nelement vertex {len(xyz)}\nproperty float x\nproperty float y\nproperty float z\nend_header\n"
         )
         np.savetxt(f, xyz, fmt="%.4f")
-    resolution = 0.05
     extent = radius + 0.3
     size = int(np.ceil(2 * extent / resolution))
     image = np.full((size, size), 205, np.uint8)
@@ -242,12 +229,14 @@ def export_navigation(out, collision, radius):
     image[hi - 3 : hi, lo:hi] = 0
     image[lo:hi, lo : lo + 3] = 0
     image[lo:hi, hi - 3 : hi] = 0
-    for x, y, z in collision:
-        if z - 0.125 >= 1.8:
-            continue
-        x0, y0 = np.floor((np.array([x, y]) - 0.125 + extent) / resolution).astype(int)
-        x1, y1 = np.ceil((np.array([x, y]) + 0.125 + extent) / resolution).astype(int)
-        image[max(0, y0) : min(size, y1), max(0, x0) : min(size, x1)] = 0
+    from scipy.ndimage import binary_dilation
+    obstacle = collision[(collision[:, 2] > .12) & (collision[:, 2] < 1.8)]
+    pixels = np.floor((obstacle[:, :2] + extent) / resolution).astype(int)
+    valid = np.all((pixels >= 0) & (pixels < size), axis=1)
+    occupied = np.zeros_like(image, dtype=bool)
+    occupied[pixels[valid, 1], pixels[valid, 0]] = True
+    occupied = binary_dilation(occupied, iterations=1)
+    image[occupied] = 0
     with (out / "map.pgm").open("wb") as f:
         f.write(f"P5\n{size} {size}\n255\n".encode())
         f.write(image[::-1].tobytes())
@@ -256,9 +245,7 @@ def export_navigation(out, collision, radius):
     )
 
 
-def main():
-    import mujoco
-
+def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--pcd",
@@ -267,18 +254,31 @@ def main():
         help="ASCII or uncompressed binary PCD corrected for inverted mounting",
     )
     parser.add_argument("--out", type=Path, default=ROOT / "sim/generated/real_scan")
-    parser.add_argument("--radius", type=float, default=8.0)
+    parser.add_argument("--radius", "--max-map-radius", "--plaster-radius", type=float, default=8.0)
     parser.add_argument("--start", type=float, nargs=2, metavar=("X", "Y"), default=(0.0, 0.0))
     parser.add_argument(
         "--auto-start",
         action="store_true",
         help="spawn on the free point nearest the scan origin instead of (0, 0)",
     )
-    args = parser.parse_args()
+    from scene_filters import add_arguments, validate, check_sources
+    add_arguments(parser)
+    args = parser.parse_args(argv)
+    try:
+        validate(args)
+        check_sources(args)
+    except (ValueError, OSError, KeyError) as error:
+        parser.error(str(error))
     if not np.isfinite(args.radius) or not 1 <= args.radius <= 20:
         parser.error("radius must be finite and between 1 and 20 metres")
     if not np.isfinite(args.start).all() or np.linalg.norm(args.start) >= args.radius - 0.6:
         parser.error("start must be finite and at least 0.6 m inside the crop radius")
+    return args
+
+
+def main():
+    import mujoco
+    args = parse_arguments()
     scene = build(args, args.start)
     # Compile now so malformed assets cannot be mistaken for a ready scene.
     model = mujoco.MjModel.from_xml_path(str(scene))

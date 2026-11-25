@@ -151,7 +151,7 @@ ldd "$(ros2 pkg prefix rmw_fastrtps_cpp)/lib/librmw_fastrtps_cpp.so" | \
 `ROS_DOMAIN_ID` 是 DDS 的逻辑通信分区，不是操作系统或 ROS 发行版。不同 domain
 中的节点即使连接同一网络，也不会互相发现。本工作区中：
 
-- 统一入口 `03_simulation.sh`、`scan_preview.sh` 和自检 `sim` 默认使用 `ROS_DOMAIN_ID=74`。
+- 统一入口 `03_simulation.sh` 和自检 `sim` 默认使用 `ROS_DOMAIN_ID=74`。
 - 手动 `start_*.sh`、operator 和仿真验证脚本默认使用 `ROS_DOMAIN_ID=72`。
 - 支架传感器演示默认使用 `ROS_DOMAIN_ID=71`。
 - PC2 实机工作流默认使用 `ROS_DOMAIN_ID=223`。

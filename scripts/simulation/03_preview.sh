@@ -20,7 +20,7 @@ usage() {
   03_preview.sh play SOURCE [--name NAME] [--radius M] [--start X Y] [--force] [--pc2 USER@HOST] [-- 导航参数]
 
 在操作电脑（Mac）的仓库根目录运行：把实机地图送到 Ubuntu 仿真机并生成
-sim/generated/NAME 场景；play 对 PCD 来源先准备再启动；传已有场景目录时直接启动 scan_preview.sh 预演。
+sim/generated/NAME 场景；play 对 PCD 来源先准备再启动；传已有场景目录时启动 03_simulation.sh nav 预演。
 MuJoCo、定位与 Nav2 全部在仿真机上运行，本机不跑仿真。
 SOURCE 可为 pc2:/绝对/路径.pcd（从 PC2 读取）或本机 PCD 路径。
 默认自动选择离扫描原点最近的空闲出生点，--start X Y 可显式指定（米）。
@@ -90,7 +90,7 @@ preflight_sim() {
 set -u
 repo=$(quote "$SIM_REPO")
 cd "\$repo" 2>/dev/null || { echo "PROBLEM 仿真机缺少仓库目录：\$repo"; exit 0; }
-for file in scripts/mapping/g1_scan_scene.py scripts/simulation/scan_preview.sh scripts/env/walking_env.sh; do
+for file in scripts/mapping/g1_scan_scene.py scripts/simulation/03_simulation.sh scripts/env/walking_env.sh; do
     [ -f "\$repo/\$file" ] || echo "PROBLEM 仿真机缺少 \$file"
 done
 [ -x "\$repo/.deps/venv/bin/python" ] || echo "PROBLEM 仿真机缺少 .deps/venv/bin/python"
@@ -253,7 +253,7 @@ REMOTE
         read -r spawn_x spawn_y <<<"$spawn"
         nav="--start $(quote "$spawn_x") $(quote "$spawn_y") $nav"
     fi
-    remote_cmd="mkdir -p ~/ldy && cd $(quote "$SIM_REPO") && export DISPLAY=$(quote "$SIM_DISPLAY") CUDA_VISIBLE_DEVICES=$(quote "$SIM_GPU") ROS_DOMAIN_ID=$(quote "$SIM_DOMAIN") ROS_LOCALHOST_ONLY=1 && ./scripts/simulation/scan_preview.sh $(quote "$remote_scene") $nav"
+    remote_cmd="mkdir -p ~/ldy && cd $(quote "$SIM_REPO") && export DISPLAY=$(quote "$SIM_DISPLAY") CUDA_VISIBLE_DEVICES=$(quote "$SIM_GPU") ROS_DOMAIN_ID=$(quote "$SIM_DOMAIN") ROS_LOCALHOST_ONLY=1 && ./scripts/simulation/03_simulation.sh nav $(quote "$remote_scene") $nav"
     local have_rviz
     have_rviz=$(sim_ssh "ls -d /opt/ros/*/share/rviz2 >/dev/null 2>&1 && echo yes || echo no")
     if [[ "$have_rviz" != yes && "$nav" != *--headless* ]]; then
@@ -286,7 +286,7 @@ REMOTE
         sim_ssh "cd $(quote "$SIM_REPO") && bash scripts/env/ros_overlay_ns.sh bash -c $(quote "$validation")" ||
             fail '缺少仿真动态库且已有 ROS 覆盖层不可用；先完成服务器 A1 部署'
         say '自动使用服务器已有只读 ROS 覆盖层，不修改系统依赖'
-        remote_cmd="mkdir -p ~/ldy && cd $(quote "$SIM_REPO") && export DISPLAY=$(quote "$SIM_DISPLAY") CUDA_VISIBLE_DEVICES=$(quote "$SIM_GPU") ROS_DOMAIN_ID=$(quote "$SIM_DOMAIN") ROS_LOCALHOST_ONLY=1 && bash scripts/env/ros_overlay_ns.sh ./scripts/simulation/scan_preview.sh $(quote "$remote_scene") $nav"
+        remote_cmd="mkdir -p ~/ldy && cd $(quote "$SIM_REPO") && export DISPLAY=$(quote "$SIM_DISPLAY") CUDA_VISIBLE_DEVICES=$(quote "$SIM_GPU") ROS_DOMAIN_ID=$(quote "$SIM_DOMAIN") ROS_LOCALHOST_ONLY=1 && bash scripts/env/ros_overlay_ns.sh ./scripts/simulation/03_simulation.sh nav $(quote "$remote_scene") $nav"
     fi
     say "在仿真机启动预演（Ctrl+C 结束本轮）"
     local terminal=-t

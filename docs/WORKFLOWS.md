@@ -251,7 +251,7 @@ PC2 执行；已有可用 PCD 时可跳过录制，直接导出：
 
 若需用 DUFOMap 去除动态点，在采集期间另开终端运行[逐帧扫描采集](#用-dufomap-清理多帧扫描)，或之后回放录包再采集。`record` 保存的单张 PCD 不包含 DUFOMap 所需的逐帧射线起点，不能直接作为它的输入；普通 `export` 也不会自动运行 DUFOMap。
 
-导出可以在 PC2 或已装 NumPy/OpenCV 的地图处理机执行。跨机时先复制 PCD；以下两条路径均指执行机器上的文件：
+导出可以在 PC2 或已装 NumPy/OpenCV 的地图处理机执行。**通过有线或无线 SSH 连接 PC2 均可导出地图**；无线连接使用本次核对的 DHCP 地址，命令仍在 PC2 的 SSH 会话内执行，PCD 无需先下载到 Mac。若改在另一台地图处理机执行，先复制 PCD；以下两条路径均指执行机器上的文件：
 
 ```bash
 ./scripts/workflows/01_self_check.sh offline
@@ -303,26 +303,241 @@ PC2 离线自检逐项报告 SciPy、scikit-image、Matplotlib 的导入结果�
 
 02 采集、导出并核对地图后，可直接进入 B4 的 04 自动定位，也可选择本节 03 预演。PC2 不运行 MuJoCo；在 Mac 仓库根发起，PCD 经 SSH 中转到 Ubuntu 仿真服务器，MuJoCo、定位与 Nav2 全部在服务器运行。
 
-一条命令完成“读取 PC2 PCD → 上传与 SHA-256 校验 → 自动选安全起点 → 生成扫描场景和配套地图 → 启动预演”：
+本节固定使用两个终端，按步骤切换窗口：
+
+| 终端 | 打开位置 | 负责操作 |
+| --- | --- | --- |
+| Mac 本地终端 | Mac 的终端应用 | 设置连接变量、同步仓库、传输 PCD；始终保留本地 shell |
+| 服务器桌面终端 | Mac 连接的服务器远程桌面内 | 查看 DISPLAY、检查环境、编译、生成场景、启动仿真 |
+
+Mac 上的 `ssh 主机 命令` 是执行完即返回的远端检查，不会进入交互登录。本流程不在 Mac 本地终端执行交互式 SSH 登录。若此前已登录服务器，先在那个 SSH 会话执行一次 `exit` 返回 Mac；若返回后变量缺失，从第 1 步重新设置。
+
+**第 1 步：在 Mac 终端设置本轮参数。** 以下命令全部在同一个 Mac 终端执行；新开终端需重新执行本段。先进入 Mac 仓库根目录，再设置变量：
 
 ```bash
-./scripts/simulation/03_preview.sh play pc2:/home/unitree/ldy/g1_real_data/maps/B1_run03.pcd \
-  --name B1_run03_preview_new --pc2 unitree@<当次无线IP>
+cd /Users/lidongyao/Desktop/code/SLAM/FAST_LIO_LOCALIZATION_HUMANOID
+export G1_PC2="unitree@192.168.123.164"
+export G1_PCD="/home/unitree/ldy/g1_real_data/maps/B1_run03.pcd"
+export G1_PREVIEW_NAME="B1_run03"
+export G1_SIM_DOMAIN=75
 ```
 
-名称使用未创建的新名称（02 会自动打印带时间戳的命令）。`play` 的输入为 PCD 时先准备再启动；输入已有场景目录时直接启动。只想先生成而不启动，使用 `prepare`；生成后脚本打印包含本次服务器和端口的 `launch` 命令：
+`G1_PC2` 是 Mac 连接 PC2 的 SSH 目标，上面使用有线地址；使用无线时，先通过有线会话在 PC2 执行 `ip -4 addr show wlan0`，再将此变量改为当次核对的地址。`G1_PCD` 是 **PC2 上**本轮 B2 保存的 PCD 绝对路径，示例 `B1_run03.pcd` 需按实际采集名称修改。`G1_PREVIEW_NAME` 沿用原始 PCD 去掉 `.pcd` 后的名称，例如 `B1_run03`，无需添加 `_preview` 或时间戳；本轮传图、生成和启动都使用同一名称。若已有同名场景，先核对已有结果；需要重新生成时换一个清楚的名称，例如 `B1_run03_v2`。
+
+**第 2 步：确认连接和输入文件。** 仍在 Mac 执行：
 
 ```bash
-./scripts/simulation/03_preview.sh prepare pc2:/home/unitree/ldy/g1_real_data/maps/B1_run03.pcd \
-  --name B1_run03_preview_new --pc2 unitree@<当次无线IP>
-./scripts/simulation/03_preview.sh launch sim/generated/B1_run03_preview_new
+ssh "$G1_PC2" 'hostname; hostname -I'
+ssh "$G1_PC2" "test -s '$G1_PCD' && ls -lh '$G1_PCD'"
 ```
 
-无图形界面时，在 `play` 或 `launch` 命令末尾添加 `-- --headless --goal X Y`，目标在生成的仿真地图中选择。GUI 模式自动探测服务器显示会话，也可通过 `G1_SIM_DISPLAY=:N` 指定。起点从 `metadata.json` 自动传给仿真，不再退回 `(0,0)`；用 `--start X Y` 可覆盖生成起点，导航阶段覆盖需放在 `--` 后。
+完成判据：第一条确认连接的是 PC2，有线地址含 `192.168.123.164`；第二条成功列出指定的非空 PCD。连接失败或文件不存在时，先修正相应变量并重做本步，不进入生成阶段。
+
+**第 3 步：设置服务器参数 → rsync 同步代码 → 检查服务器运行环境。** 参数设置与同步在 Mac 本地终端执行，环境检查切换到服务器桌面终端。先在 Mac 仓库根目录操作。先固定本轮服务器，避免同步、生成与启动落在不同主机：
+
+```bash
+export G1_SIM_IP="202.121.181.124"
+export G1_SIM_USER="sjtu"
+export G1_SIM_PORT=4622
+export G1_SIM_HOST="$G1_SIM_USER@$G1_SIM_IP"
+export G1_SIM_REPO="/home/sjtu/ldy/FAST_LIO_LOCALIZATION_HUMANOID"
+export G1_SIM_DATA="/home/sjtu/ldy/g1_real_data"
+export G1_SYNC_BACKUP="$G1_SIM_DATA/records/preview-sync-$(date +%Y%m%d_%H%M%S)"
+```
+
+`G1_SIM_REPO` 是服务器上的代码绝对路径，后续同步、自检和生成都使用它；更换服务器时先修改本段变量。先核对已有部署目录，再进行 rsync：
+
+```bash
+ssh -p "$G1_SIM_PORT" "$G1_SIM_HOST" \
+  "if test -d '$G1_SIM_REPO/scripts'; then
+     echo '[通过] 服务器代码目录存在：$G1_SIM_REPO'
+   else
+     echo '[失败] 服务器代码目录不存在：$G1_SIM_REPO' >&2
+     exit 1
+   fi"
+```
+
+看到 `[通过]` 后继续 rsync；看到 `[失败]` 时先核对 `G1_SIM_REPO`，路径正确但尚未部署则先完成 A1。SSH 连接或认证报错时停在本步处理连接。
+
+**同步范围是整个仓库源码**，以 Mac 仓库根目录 `./` 为来源。先在同一个 Mac 终端定义三条 rsync 命令共用的排除项：
+
+```bash
+G1_SIM_SYNC_EXCLUDES=(
+  --exclude='.git/' --exclude='build/' --exclude='install/' --exclude='log/'
+  --exclude='.deps/' --exclude='vendor/' --exclude='doc/' --exclude='tmp/'
+  --exclude='sim/generated/' --exclude='__pycache__/' --exclude='*.pyc'
+  --exclude='FAST_LIO/Log/' --exclude='MUJOCO_LOG.TXT'
+)
+```
+
+`.deps/` 包含本机依赖和仿真子模块，保留服务器自己的部署，不从 Mac 复制；`sim/generated/` 中已有场景和运行日志也保留。
+
+已有服务器部署先反向预览整个源码范围的差异（不拉取文件）：
+
+```bash
+rsync -ainc "${G1_SIM_SYNC_EXCLUDES[@]}" \
+  -e "ssh -p $G1_SIM_PORT" \
+  "${G1_SIM_HOST}:${G1_SIM_REPO}/" ./
+```
+
+确认需保留的远端修改后再同步。被覆盖文件按仓库相对路径备份到服务器的 `$G1_SYNC_BACKUP`，不删除远端额外文件：
+
+```bash
+rsync -aic --backup --backup-dir="$G1_SYNC_BACKUP" \
+  "${G1_SIM_SYNC_EXCLUDES[@]}" \
+  -e "ssh -p $G1_SIM_PORT" \
+  ./ "${G1_SIM_HOST}:${G1_SIM_REPO}/"
+# 同范围 checksum 复核：无文件差异输出表示 Mac 文件已同步。
+rsync -ainc "${G1_SIM_SYNC_EXCLUDES[@]}" \
+  -e "ssh -p $G1_SIM_PORT" \
+  ./ "${G1_SIM_HOST}:${G1_SIM_REPO}/"
+```
+
+这里同步整个源码树，服务器独有文件仍保留；首次部署先完成 A1。若同步清单包含 FAST-LIO、Open3D、导航 launch/config 或控制器源码更新，需在服务器构建/更新受影响的安装产物后再检查运行环境，不能仅凭自检通过认定 `install/` 已对应新源码。构建遵守本文的实时日志与终态检查要求。
+
+同步复核通过后，先设置服务器图形显示。假设 Mac 已通过远程桌面连接服务器，**在服务器远程桌面中打开终端**执行：
+
+```bash
+printf '当前图形会话 DISPLAY=%s\n' "$DISPLAY"
+```
+
+记下实际输出，例如 `DISPLAY=:11.0`。以本次远程桌面实际值为准，不根据历史记录或显示 socket 猜测；输出为空时，先确认命令是在远程桌面里打开的终端执行。
+
+**推荐直接在这个远程桌面终端继续操作**，它已继承正确的 `DISPLAY`。设置服务器代码路径并进入仓库（新终端不会继承 Mac 的 export）：
+
+```bash
+export G1_SIM_REPO="/home/sjtu/ldy/FAST_LIO_LOCALIZATION_HUMANOID"
+cd "$G1_SIM_REPO"
+export G1_SIM_DISPLAY="$DISPLAY"
+```
+
+保持在这个服务器桌面终端验证显示可用，再执行服务器检查；无需覆盖它已继承的 `DISPLAY`：
+
+```bash
+if xdpyinfo -display "$DISPLAY" >/dev/null; then
+  echo "[通过] 图形显示可用：$DISPLAY"
+else
+  echo "[失败] 无法访问图形显示：$DISPLAY，请检查显示值及会话访问权限。"
+fi
+./scripts/simulation/03_server_check.sh
+```
+
+看到显示检查 `[通过]` 后再继续；若 `xdpyinfo` 不存在或访问失败，停在此处处理。仅设置 `DISPLAY` 不会自动取得另一个桌面会话的访问权限，优先回到原远程桌面终端执行。
+
+这一步尚未检查编译依赖，也不代表运行环境自检通过。4622 空闲显存不足 2 GiB 时，切换到保留的 Mac 本地终端，设置 `export G1_SIM_PORT=4322`，核对目标代码路径后从 rsync 核对与同步重新执行；连接失败同样在 Mac 处理。两台均不可用则停止。
+
+接着执行仿真自检，仍在 **服务器终端**执行；4622 已有只读依赖覆盖层时使用：
+
+```bash
+export ROS_DOMAIN_ID=75 ROS_LOCALHOST_ONLY=1
+bash scripts/env/ros_overlay_ns.sh ./scripts/workflows/01_self_check.sh sim
+```
+
+直接安装齐全的服务器可去掉 `bash scripts/env/ros_overlay_ns.sh` 前缀。完成判据：同范围 checksum 复核无差异，输出 `sim 自检通过`。这只证明依赖与产物检查通过，定位和导航仍须实际启动验证。
+
+**第 4 步：传输 PCD 并校验。** 环境检查通过后，切换到一直保留的 **Mac 本地终端**执行传图脚本，沿用前面 export 的变量，无需退出服务器桌面终端。本步只负责文件传输：
+
+```bash
+./scripts/simulation/03_transfer_pcd.sh
+```
+
+数据路径是 **PC2 → Mac 中转 → 仿真服务器**，Mac 不运行仿真，也不在本地保存中转 PCD。服务器目标路径是 `$G1_SIM_DATA/replay/$G1_PREVIEW_NAME.pcd`，本例为 `/home/sjtu/ldy/g1_real_data/replay/B1_run03.pcd`。若此前已按旧名称传图，在 Mac 更新 `export G1_PREVIEW_NAME="B1_run03"` 后重新执行传图脚本；旧文件保留，本轮生成改用新路径。
+
+完成判据：脚本打印 `[通过] PCD 大小…SHA-256 校验一致` 和 `[服务器 PCD]` 的绝对路径。服务器已有同名且内容相同的 PCD 时直接校验；内容不同时停止，不覆盖。传输失败先处理错误，不进入场景生成阶段。
+
+若后续需要逐帧近距过滤、时间抽样或 DUFOMap，在 **Mac 本地终端**为同一传图命令追加扫描目录；下面路径指 PC2 上本轮 B2 实际采集的目录，先核对存在后填写：
+
+```bash
+export G1_PC2_SCANS="/home/unitree/ldy/g1_real_data/records/B1_run03/scans"
+./scripts/simulation/03_transfer_pcd.sh --scans "$G1_PC2_SCANS"
+```
+
+脚本只通过 Mac 中转，不在 Mac 保存扫描数据；逐文件核对大小及 SHA-256 后打印 `[服务器扫描]` 路径，本例为 `/home/sjtu/ldy/g1_real_data/replay/B1_run03/scans`。若另有同轮配对 IMU/body 证据，在命令中追加 `--evidence <PC2证据绝对路径>`，传输后会打印 `[服务器证据]`。没有配对扫描时仅传 PCD，后续使用 PCD 支持的过滤选项，不启用逐帧功能。示例目录不是 B2 自动保证生成的目录，需以实际 `02_mapping.sh scans` 输出为准。
+
+
+**第 5 步：在服务器生成场景。** 回到服务器桌面终端，先设置第 4 步传图脚本打印的 `[服务器 PCD]` 绝对路径，再运行生成脚本。路径规则为第 3 步设置的 `G1_SIM_DATA` 加上 `/replay/`、第 1 步设置的 `G1_PREVIEW_NAME` 和 `.pcd`。例如第 1 步的名称为 `B1_run03`，第 4 步就会输出下面的路径；执行时复制本轮实际输出，沿用前面设置的名称：
+
+```bash
+export G1_SERVER_PCD="/home/sjtu/ldy/g1_real_data/replay/B1_run03.pcd"
+./scripts/simulation/03_generate_scene.sh "$G1_SERVER_PCD"
+```
+
+脚本以 PCD 文件名作为场景名称，本例输出为服务器仓库下的 `sim/generated/B1_run03/`，后台生成并保存 `pid/status/generate.log`，每秒检查终态、每 25 秒显示进程与日志增长。完成判据：输出 `[通过] 石膏场景及配套文件已生成`，且 `scene.xml`、`plaster.obj`、`map.ply`、`map.yaml`、`map.pgm`、`metadata.json`、`filtered.pcd`、`filter_report.json` 均非空。本步不传图、不启动仿真；失败先查日志，已有场景目录不覆盖。
+
+**预览发现残点、过密或遮挡时，回到第 5 步调参重建。** 在服务器执行同一入口即可；下面使用 6 cm 降采样，近距剔除默认关闭：
+
+```bash
+./scripts/simulation/03_generate_scene.sh "$G1_SERVER_PCD" --rebuild \
+  --voxel 0.06 --origin-clear-radius 0 \
+  --radius 8 --plaster-grid 0.10
+```
+
+`--rebuild` 将同名旧场景和旧参数归档到本次日志目录的 `previous-scene/`，原始 PCD 不改写；参数或输入预检失败时不归档旧场景。成功后关闭旧预览窗口，重新执行第 6 步加载新结果。参数调整不需要重新同步代码或重新传输同一份 PCD。
+
+| 参数 | 默认值 | 调整内容 |
+| --- | --- | --- |
+| `--voxel` | `0` | 输入点云质心降采样间距，单位米；如 `0.03`、`0.06`、`0.12`。这是点云处理，不生成体素场景。 |
+| `--origin-clear-radius` | `0` | 剔除地图原点周围指定水平半径内的非地面点，单位米；只适用于明确要处理起点区域的情况。 |
+| `--near-radius` | `0` | 按每帧机器人位置剔除周围非地面点，需同轮 `--scans` 和 body 位置；与原点剔除不同。 |
+| `--keep-near-ground` / `--no-keep-near-ground` | 保留 | 是否让近处地面通过近距门限；`--floor-band` 默认 `0.15` m。 |
+| `--height-min` / `--height-max` | `-0.15` / `4.5` | 输入点相对拟合地面的保留高度范围，单位米。 |
+| `--radius` | `8` | 场景裁剪半径，单位米；兼容 `--max-map-radius` / `--plaster-radius`。 |
+| `--plaster-grid` | `0.10` | 石膏表面重建采样间距；越粗越平滑，但会丢失窄缝和小物体。 |
+| `--plaster-ground-cut` / `--plaster-height` | `0.16` / `2.5` | 石膏障碍表面的离地高度范围，单位米；平地单独生成。 |
+| `--max-faces` | `4000` | 表面简化目标面数，拓扑约束可能导致实际面数更高。 |
+| `--resolution` | `0.05` | 二维规划图栅格分辨率，单位米。 |
+| `--sample-period` | `0` | 逐帧时间抽样间隔，单位秒；需要 `--scans`。每桶首帧再应用 IMU 门限，不补取后续帧。 |
+| `--dufo` | 关闭 | 使用同轮配对扫描执行 DUFOMap，不能对合并 PCD 假装执行动态清理。 |
+| `--dufo-d-s` / `--dufo-d-p` | `0.2` / `1` | DUFOMap 传感器噪声裕量（米）和位姿不确定性裕量（算法内部网格单位）；兼容 `--d-s` / `--d-p`。 |
+| `--evidence` / `--imu-max-accel` | 不启用 | 同轮 `t/body/scores` NPZ 及去重力加速度 P95 上限；`--no-imu-filter` 显式关闭。 |
+
+例如，只检查原点附近残点时，可将 `--origin-clear-radius 0` 改为 `0.8`；它会同时删除该范围内真实障碍的回波，不能把“画面变干净”当作现场无障碍的证明。若问题是运动中的吊架残点，应使用逐帧 `--near-radius`，而不是仅清空地图原点。明显的重影、错位和地图撕裂需回到 FAST-LIO 回放/采集检查，后处理不能恢复丢失或错误配准的信息。
+
+**可选：有同轮逐帧输入时，将近距过滤和 DUFOMap 接入同一命令。** 先将 B2 `02_mapping.sh scans` 采集的 NPZ 目录传到本轮服务器。每帧至少需要世界坐标 `points` 和射线原点/姿态 `pose`；新采集器还保存 `body` 和 `stamp_ns`。旧扫描缺少 body 时提供同轮 `--evidence`；若明确选择按雷达原点过滤，则额外指定 `--near-reference lidar-origin`，不会自动代替机器人位置。
+
+```bash
+# 服务器：路径指向已经传到服务器的同轮配对扫描。
+export G1_SCANS="$HOME/ldy/g1_real_data/replay/B1_run03/scans"
+./scripts/simulation/03_generate_scene.sh "$G1_SERVER_PCD" --rebuild \
+  --scans "$G1_SCANS" --dufo --dufo-d-s 0.2 --dufo-d-p 1 \
+  --near-radius 1.5 --voxel 0.06 --sample-period 0
+```
+
+扫描、DUFOMap 模块或 body 位置缺失时明确报错，不回退成“仅处理合并 PCD”。DUFOMap 使用全量扫描建立动态判别，再在输出时应用时间、IMU、近距和高度过滤，最后降采样和重建石膏表面。IMU 选帧还需在命令中追加同轮 `--evidence <服务器证据路径> --imu-max-accel 0.6`。
+
+每次输出 `filtered.pcd`（过滤后的原地图坐标点云）、`filter_report.json`（输入 SHA-256、逐帧来源、实际参数、保留点/帧数、依赖版本和坐标变换）及更新后的石膏场景和配套地图，可与归档结果对比。DUFOMap 使用算法内部网格，并不改变场景采用连续石膏网格的要求。
+
+**第 6 步：在服务器用 NVIDIA GPU 打开石膏场景。** 在服务器远程桌面终端执行，沿用已确认的 `DISPLAY`：
+
+```bash
+./scripts/simulation/03_preview_scene.sh sim/generated/B1_run03
+```
+
+路径对应第 5 步生成的场景目录。入口自动设置 NVIDIA 渲染变量并检查实际 OpenGL 渲染器；若仍是 `llvmpipe` 软件渲染则报错，不静默继续。预览窗口显示连续的石膏网格，按 `metadata.json` 应用出生点，隐藏碰撞辅助面。预览只显示静态场景，不启动 ROS、行走策略、物理步进或 Nav2。
+
+鼠标旋转、平移和缩放，核对地面、墙体、障碍物及出生点。完成判据：日志显示 NVIDIA GPU，MuJoCo 正常加载石膏场景，方向、尺度与主要几何符合采集现场。异常时停在此步；核对完成后关闭窗口，再进入第 7 步。
+
+石膏场景的显示、碰撞、虚拟雷达及配套地图来自同一连续表面，不生成体素盒；碰撞使用沿三角面的 8 mm 薄片，避免整间房屋被单个凸包封住。重建仍会平滑扫描细节，平地延伸仍是仿真假设，不能替代现场通行性核对。自动几何与碰撞检查属于补充验证，不代替交互预览。
+
+**第 7 步：在服务器图形桌面启动仿真并验证导航。** 第 6 步预览确认后，先关闭静态预览窗口，然后在同一个服务器桌面终端执行：
+
+```bash
+export ROS_DOMAIN_ID=75 ROS_LOCALHOST_ONLY=1
+bash scripts/env/ros_overlay_ns.sh \
+  ./scripts/simulation/03_simulation.sh nav sim/generated/B1_run03
+```
+
+4622 使用已部署的只读 ROS 依赖覆盖层。`03_simulation.sh nav` 是统一的导航入口，建图和场景导航共用同一入口。启动前检查实际 XML 中没有旧扫描体素、且存在石膏表面 mesh 碰撞，日志会打印场景绝对路径与碰撞类型。旧 `B1_run03_preview` 目录不能作为本轮输入。入口从本轮 `metadata.json` 自动读取出生点，加载同目录的 `scene.xml`、`map.ply` 和 `map.yaml`，依次启动 MuJoCo、行走控制器、定位、Nav2 和 RViz；使用桌面终端已经确认的 `DISPLAY`。启动环境自动启用 NVIDIA 渲染变量。
+
+启动时还应看到 `GPU 图形渲染：NVIDIA ...`。当前 MuJoCo 物理计算、雷达求交和 CPU 版 ONNX 步态推理不因图形窗口使用 GPU 而自动迁移到 GPU。雷达直接查询同一石膏表面及动态障碍，不遍历每个物理碰撞薄片。
+
+等待终端出现 **“仿真定位、Nav2 和速度门禁就绪”** 后，在 RViz 使用 **Nav2 Goal** 选择地图内空闲且可达的位置，按住鼠标拖动设置目标朝向后松开。观察 MuJoCo 中机器人是否沿路径运动，RViz 中机器人位姿、点云与地图是否保持对齐，并最终到达目标。
+
+完成判据：定位持续更新，目标被接受，仿真机器人实际运动并到达；只看到地图或规划线不算导航通过。启动失败按终端打印的本轮日志目录定位错误，不叠加启动第二套会话。结束时在启动终端按 Ctrl+C，等待本轮进程清理完成。
 
 默认 `sjtu@202.121.181.124:4622`，不可达或空闲显存不足 2 GiB 时尝试 4322；显式 `G1_SIM_HOST`/`G1_SIM_PORT` 指定时不擅自切换。默认仿真域 75，与实机域 223、常用仿真域 74 分离；可用 `G1_SIM_DOMAIN` 指定独立域，不能用 223。只读检查并选择空闲 GPU，不结束已有服务器任务。
 
-生成时选择离扫描原点最近、至少有 0.75m 净空的起点，保持独立新目录。场景生成和 MuJoCo 编译在服务器后台记录 `pid/status/generate.log`（`~/ldy/g1_real_data/records/preview/`），每 25 秒报告进程与日志增长；SSH 中断后先查看状态，不重复启动。仿真运行在前台，Ctrl+C 停止本次预演。
+生成时选择离扫描原点最近、至少有 0.75m 净空的起点，保持独立新目录。石膏场景生成和 MuJoCo 编译在服务器后台记录 `pid/status/generate.log`（`~/ldy/g1_real_data/records/preview/`），每 25 秒报告进程与日志增长；SSH 中断后先查看状态，不重复启动。仿真运行在前台，Ctrl+C 停止本次预演。
 
 服务器须已完成 A1 仿真环境准备；启动前检查定位程序动态库及 Nav2 包，若本机缺依赖但已有 `ros_overlay_ns.sh` 覆盖层可用，会自动在只读覆盖层中运行，不更改系统依赖；覆盖层不可用则明确报错。不会自动安装或构建。Mac/PC2 不需复制私钥；PC2 尚未配置服务器 SSH 时使用上述 Mac 中转方式即可。预演结束回到 PC2 的实机地图，执行 04；可全程跳过本节。
 
@@ -337,7 +552,7 @@ export ROS_DOMAIN_ID=75 ROS_LOCALHOST_ONLY=1
 
 最后一条的起点取生成时打印的值；`03 nav` 遇到包含 `scene.xml` 的扫描场景会自动转入扫描预演实现。
 
-这里重新生成 `scene.xml` 和配套的 `map.ply/map.yaml/map.pgm`；定位图取自近似碰撞几何，地面经过调平和人工延伸。运行链是“虚拟 LiDAR/IMU → FAST-LIO → Open3D → Nav2 → 虚拟 G1”，没有接入 PC2 的实时雷达或硬件速度输出。
+这里重新生成 `scene.xml`、`plaster.obj` 和配套的 `map.ply/map.yaml/map.pgm`；定位图采样自石膏网格几何，地面经过调平和人工延伸。运行链是“虚拟 LiDAR/IMU → FAST-LIO → Open3D → Nav2 → 虚拟 G1”，没有接入 PC2 的实时雷达或硬件速度输出。
 
 完成判据：场景能加载，虚拟点云与配套地图对齐，预演目标及障碍用例符合预期。它有助于发现场景或地图配套问题；真实标定、传感器延迟、行走振动和运控响应仍由现场验证。
 
@@ -463,7 +678,7 @@ G1_PYTHON=/path/to/dufomap-venv/bin/python \
 
 | 入口 | 未设置 `ROS_DOMAIN_ID` 时的默认域 | 默认工作流日志 |
 | --- | --- | --- |
-| `03_simulation.sh`、`scan_preview.sh`、自检 `sim` | 74 | `sim/generated/workflow_logs/` |
+| `03_simulation.sh`、自检 `sim` | 74 | `sim/generated/workflow_logs/` |
 | PC2 采集、定位、Web、自检 `robot` | 223 | `$G1_DATA/records/workflows/` |
 | 手动 `start_*.sh` 与仿真检查脚本 | 72 | 见各脚本输出 |
 | 支架传感器演示 `run_g1_mujoco.sh` | 71 | `sim/generated/logs/` |

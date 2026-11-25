@@ -15,10 +15,10 @@ Python dependency path. Run `render.py` with SciPy, scikit-image, Matplotlib,
 OpenCV and Pillow to export the mesh and preview. The navigation image is
 exported separately from scan evidence and retains unknown cells.
 
-In `plaster-map/mujoco`, run `trial.py` with the walking simulation environment
-and `MUJOCO_GL=egl` to generate the scene, OBJ, screenshots and probe results.
-Run `navigation_assets.py` with NumPy and OpenCV to reproject the occupancy map
-and localization point cloud into the scene's world frame.
+Generate and navigate plaster scenes with the maintained server-side
+`03_generate_scene.sh`, `03_preview_scene.sh`, and `03_simulation.sh nav`
+workflow in [WORKFLOWS B3](../../../docs/WORKFLOWS.md#b3-可选在仿真机预演实机地图).
+The same reconstructed surface supplies display, collision, LiDAR and paired maps.
 
 See [the filter and visualization guide](../../../g1_real_robot_docs/hang_a02_point_cloud_filters.md)
 for tuning parameters, GPU RViz reproduction, and aligned map rerun comparisons.

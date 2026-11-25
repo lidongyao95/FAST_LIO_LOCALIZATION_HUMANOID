@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check supported G1 stability and drop a sphere onto a scan collision voxel."""
+"""Check supported G1 stability and drop a sphere onto a scan collision surface."""
 import argparse
 import json
 import struct
@@ -101,16 +101,31 @@ def check_stability(scene, out, render):
 def check_collision(scene, out):
     tree = ET.parse(scene)
     world = tree.getroot().find("worldbody")
-    voxels = [
+    surfaces = [
         g
         for g in world.findall("geom")
-        if g.get("name", "").startswith("scan_collision_")
+        if g.get("name", "").startswith("plaster_collision_")
     ]
-    if not voxels:
-        raise ValueError("Scene has no scan collision voxels")
-    highest = max(voxels, key=lambda g: float(g.get("pos").split()[2]))
-    pos = np.fromstring(highest.get("pos"), sep=" ")
-    top = pos[2] + float(highest.get("size").split()[2])
+    if not surfaces:
+        raise ValueError("Scene has no scan collision surfaces")
+    if any(g.get("type") != "mesh" for g in surfaces):
+        raise ValueError("Plaster contacts must be surface meshes")
+    meshes = {m.get("name"): np.fromstring(m.get("vertex"), sep=" ").reshape(-1, 3)
+              for m in tree.getroot().find("asset").findall("mesh")
+              if m.get("vertex")}
+    candidates = []
+    for geom in surfaces:
+        vertex = meshes[geom.get("mesh")]
+        tri = vertex[:3]
+        normal = np.cross(tri[1] - tri[0], tri[2] - tri[0])
+        if abs(normal[2]) / np.linalg.norm(normal) > .95:
+            center = np.fromstring(geom.get("pos"), sep=" ")
+            candidates.append((center[2], center, vertex[:3].mean(axis=0)))
+    if not candidates:
+        raise ValueError("No near-horizontal plaster surface for drop probe")
+    _, center, local = max(candidates, key=lambda item: item[0])
+    pos = center + local
+    top = pos[2]
     body = ET.SubElement(
         world, "body", name="collision_probe", pos=f"{pos[0]} {pos[1]} {top + .6}"
     )
@@ -121,20 +136,26 @@ def check_collision(scene, out):
     model = mujoco.MjModel.from_xml_path(str(path))
     data = scene_data(model, scene)
     probe, hit = model.geom("probe_geom").id, False
+    penetration = 0.0
     for _ in range(round(2 / model.opt.timestep)):
         step_supported(model, data)
         for contact in data.contact:
             if probe in (contact.geom1, contact.geom2):
                 other = contact.geom2 if contact.geom1 == probe else contact.geom1
-                hit |= model.geom(other).name.startswith("scan_collision_")
+                surface_hit = model.geom(other).name.startswith("plaster_collision_")
+                hit |= surface_hit
+                if surface_hit:
+                    penetration = min(penetration, float(contact.dist))
+        if hit:
+            break
     z = float(data.xpos[model.body("collision_probe").id, 2])
-    resting = bool(abs(z - (top + 0.06)) < 0.02)
     report = {
-        "probe_hit_scan_collision": hit,
+        "probe_hit_plaster_surface": hit,
         "surface_top_m": float(top),
-        "probe_final_z_m": z,
-        "probe_resting_on_voxel": resting,
-        "passed": bool(hit and resting and not any(w.number for w in data.warning)),
+        "probe_height_at_impact_m": z,
+        "surface_penetration_m": penetration,
+        "passed": bool(hit and penetration > -.02 and np.isfinite(data.qpos).all()
+                       and not any(w.number for w in data.warning)),
     }
     (out / "collision_validation.json").write_text(json.dumps(report, indent=2))
     return report

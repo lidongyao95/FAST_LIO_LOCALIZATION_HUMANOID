@@ -3,6 +3,8 @@
 import argparse
 import ctypes
 import math
+import json
+import os
 import time
 import numpy as np
 import mujoco
@@ -25,8 +27,11 @@ class WalkingSim(Sensors):
                  fixed_obstacles=(), moving_to=None, moving_speed=.2,
                  show_moving=False, show_fixed=False):
         super().__init__(model_path=model_path)
+        self.surface_rays = None
         if model_path is not None:
-            self.groups[3] = 1  # Scan collision voxels are sensor-visible.
+            from plaster_raycast import PlasterRaycaster
+            self.surface_rays = PlasterRaycaster(model_path)
+            self.get_logger().info('LiDAR queries continuous plaster surface; physical contact meshes unchanged')
         self.model.qpos0[0:2]=[start_x,start_y]
         self.model.qpos0[3:7]=[math.cos(start_yaw/2),0.,0.,math.sin(start_yaw/2)]
         support=self.model.body('support')
@@ -104,6 +109,12 @@ class WalkingSim(Sensors):
         res.success = True
         res.message = f'Fixed obstacle {index + 1}: {"placed" if req.data else "removed"}'
         return res
+
+    def cast_rays(self, origin, directions, geomids, distances):
+        if self.surface_rays is not None:
+            self.surface_rays.cast(self.model, self.data, origin, directions, geomids, distances)
+        else:
+            super().cast_rays(origin, directions, geomids, distances)
 
     def apply_control(self):
         if self.obstacle_active and self.moving_to is not None:
@@ -187,14 +198,38 @@ def main():
         viewer=mujoco.viewer.launch_passive(node.model,node.data);viewer.cam.distance=7;viewer.cam.lookat[:]=[0,0,1]
         if args.model_path: viewer.opt.geomgroup[3]=0
     start=time.monotonic();next_view=start
+    diagnostics = open(os.environ['G1_SIM_DIAGNOSTICS'], 'w', buffering=1) if os.environ.get('G1_SIM_DIAGNOSTICS') else None
+    last_diag_wall, last_diag_sim = start, node.data.time
+    contact_pairs, deepest = {}, 0.
     try:
         while rclpy.ok() and (viewer is None or viewer.is_running()):
             node.step();rclpy.spin_once(node,timeout_sec=0.)
+            if diagnostics:
+                for contact in node.data.contact:
+                    a, b = (node.model.geom(int(i)).name for i in (contact.geom1, contact.geom2))
+                    if a.startswith('plaster_collision_') or b.startswith('plaster_collision_'):
+                        other = b if a.startswith('plaster_collision_') else a
+                        contact_pairs[other] = contact_pairs.get(other, 0) + 1
+                    deepest = min(deepest, float(contact.dist))
+                now = time.monotonic()
+                if now - last_diag_wall >= 1.:
+                    w, x, y, z = node.data.qpos[3:7]
+                    roll = math.atan2(2*(w*x+y*z), 1-2*(x*x+y*y))
+                    pitch = math.asin(max(-1., min(1., 2*(w*y-z*x))))
+                    diagnostics.write(json.dumps(dict(wall_s=now-start, sim_s=float(node.data.time),
+                        realtime_ratio=(node.data.time-last_diag_sim)/(now-last_diag_wall),
+                        xyz=node.data.qpos[:3].tolist(), roll_deg=math.degrees(roll), pitch_deg=math.degrees(pitch),
+                        fresh=bool(node.fresh), supported=bool(node.data.eq_active[0]),
+                        plaster_contact_pairs=contact_pairs, deepest_contact_m=deepest))+'\n')
+                    last_diag_wall, last_diag_sim = now, node.data.time
+                    contact_pairs, deepest = {}, 0.
+
             if node.reset_wall:start=time.monotonic()-node.data.time;node.reset_wall=False
             if viewer and time.monotonic()>=next_view:viewer.sync();next_view=time.monotonic()+1/30
             time.sleep(max(0.,start+node.data.time-time.monotonic()))
     except KeyboardInterrupt:pass
     finally:
         if viewer:viewer.close()
+        if diagnostics:diagnostics.close()
         node.destroy_node();rclpy.try_shutdown()
 if __name__=='__main__':main()

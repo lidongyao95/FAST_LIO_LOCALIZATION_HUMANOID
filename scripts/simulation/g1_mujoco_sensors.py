@@ -138,6 +138,11 @@ class Sensors(Node):
             )
         self.data.ctrl[:] = -80*self.data.qpos[7:] - 3*self.data.qvel[6:]
 
+    def cast_rays(self, origin, directions, geomids, distances):
+        mujoco.mj_multiRay(self.model, self.data, origin, directions.ravel(),
+                          self.groups, 1, self.base, geomids, distances, None,
+                          len(directions), 30.)
+
     def step(self):
         self.apply_control()
         # Update the mocap target and sample the IMU at EVERY physics step.
@@ -161,9 +166,7 @@ class Sensors(Node):
             directions = np.ascontiguousarray(self.rays @ rotation.T)
             distances = np.empty(len(directions))
             geomids = np.empty(len(directions), dtype=np.int32)
-            mujoco.mj_multiRay(self.model, self.data, origin, directions.ravel(),
-                              self.groups, 1, self.base, geomids, distances, None,
-                              len(directions), 30.)
+            self.cast_rays(origin, directions, geomids, distances)
             valid = (distances > .5) & (distances < 30.)
             xyz = self.rays[valid] * distances[valid, None]
             packed = np.column_stack([xyz, np.ones(len(xyz))]).astype('<f4')

@@ -304,12 +304,13 @@ ros2 run tf2_ros tf2_echo map base_footprint
 `0.6`、`odom_fresh=true` 和 `nav_ready=true`。定位漂移或代价地图持续报告越界时，
 应停止导航并重新启动定位，而不是只重启 Nav2。
 
-## 8. 使用真机扫描生成的仿真场景
+## 8. 使用真机扫描生成的石膏场景
 
-[扫描场景与 RViz 导航指南](../g1_real_robot_docs/scan_mujoco_preview.md)复用本手册第 4 节启动顺序。
-先生成场景和配对地图，再用 `start_walking_sim.sh --model-path ...` 加载场景，
-定位与导航分别显式传入对应 `map_ply`、`map_yaml`。地面扩展和碰撞体素属于仿真近似，
-不能直接作为真机导航验收结果。
+按 [WORKFLOWS B3](WORKFLOWS.md#b3-可选在仿真机预演实机地图) 在服务器生成、预览和验证石膏场景。显示、碰撞、虚拟雷达和配套地图使用同一重建表面。确认预览后在服务器图形终端运行：
 
-使用实测点云生成的石膏网格时，按[4322 石膏版手动导航](../g1_real_robot_docs/scan_mujoco_preview.md#5-4322-石膏版手动导航)
-加载配套场景、定位点云和二维图。该节给出了初始位姿、RViz 配置和交接判据。
+```bash
+export ROS_DOMAIN_ID=75 ROS_LOCALHOST_ONLY=1
+bash scripts/env/ros_overlay_ns.sh ./scripts/simulation/03_simulation.sh nav sim/generated/B1_run03
+```
+
+入口读取本轮出生点及同目录地图。观察 MuJoCo 与 RViz 的位姿、点云和路径，使用 Nav2 Goal 验证实际运动与到达。地面扩展与表面重建属于仿真假设，不能代替实机验证。

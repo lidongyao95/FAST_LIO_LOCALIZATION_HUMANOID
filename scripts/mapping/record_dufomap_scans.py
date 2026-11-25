@@ -86,7 +86,8 @@ def main():
         final = args.output / f"{stamp}.npz"
         temporary = final.with_suffix(".tmp")
         with temporary.open("xb") as stream:
-            np.savez(stream, points=world.astype(np.float32), pose=pose)
+            np.savez(stream, points=world.astype(np.float32), pose=pose,
+                     body=translation, stamp_ns=np.int64(stamp))
         temporary.rename(final)
         last_stamp = stamp
         count += 1

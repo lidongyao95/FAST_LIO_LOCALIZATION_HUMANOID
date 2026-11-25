@@ -16,7 +16,7 @@
 | 内置房间建图和导航 | `simulation/03_simulation.sh map\|nav` | Ubuntu 仿真机 |
 | 实机地图一键上传仿真机并自动选点生成预演场景 | `simulation/03_preview.sh prepare` / `play pc2:/...pcd` | Mac 仓库根发起；仿真在仿真机运行，PCD 取自 PC2（`pc2:/abs/path.pcd`） |
 | 启动已有扫描场景做导航预演 | `simulation/03_preview.sh play` | Mac 仓库根发起，自动 SSH 到仿真机执行 MuJoCo + Nav2 |
-| 实机点云生成场景后的导航预演 | `simulation/scan_preview.sh` | Ubuntu 仿真机，使用虚拟传感器 |
+| 实机点云生成场景后的导航预演 | `simulation/03_simulation.sh nav <场景目录>` | Ubuntu 仿真机，使用虚拟传感器 |
 | 查询实时状态、自动全局重定位后持续跟踪 | `real_robot/04_robot_ready.sh status\|localize` | PC2 |
 | 定位前网页检查导出地图 | `real_robot/05_web_navigation.sh MAP_DIR --review --port 18082` | PC2；Mac SSH 转发并浏览 |
 | 网页仅规划 | `real_robot/05_web_navigation.sh` | PC2；浏览器可在 Mac |
@@ -41,7 +41,7 @@ DUFOMap 的[操作步骤](../docs/WORKFLOWS.md#用-dufomap-清理多帧扫描)�
 | `checks/` | 独立诊断和验证程序；行走、目标导航、真值误差检查用于仿真，`probe_topics.py` 用于实机输入检查，`check_planning_obstacles.py` 离线检查规划障碍服务与 Web 客户端，`check_process_preflight.py` 检查进程筛选与清理边界，`check_navigation_architecture.py` 检查两种 Nav2 模式，`check_obstacle_thresholds.py` 检查点云邻域筛选和阈值事务 |
 | `experiments/` | `hang_a02` 等特定数据集的历史复现，路径和资产按实验记录准备 |
 
-`03_simulation.sh` 和 `scan_preview.sh` 调用 `session.sh`，再编排 `start_*.sh`、控制器、定位与 Nav2。日常运行用统一入口；需要单独观察某个组件时，再按[手动运行手册](../docs/NAVIGATION_MANUAL.md)使用底层入口，避免同时启动两套会话。
+`03_simulation.sh` 调用 `session.sh`，再编排 `start_*.sh`、控制器、定位与 Nav2。日常运行用统一入口；需要单独观察某个组件时，再按[手动运行手册](../docs/NAVIGATION_MANUAL.md)使用底层入口，避免同时启动两套会话。
 
 `mapping/` 中的 `pcd.py`、`g1_scan_scene.py` 等被其他工具导入；仿真脚本也有同目录导入。再次移动文件时需同时核对 Python 导入、`__file__` 根目录计算、shell 的 `source` 和 launch 中的路径。
 
