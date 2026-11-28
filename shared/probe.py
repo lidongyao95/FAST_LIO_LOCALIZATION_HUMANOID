@@ -135,13 +135,17 @@ def main():
                 if node.count_publishers("/map") > 1 or node.count_publishers("/global_costmap/costmap_raw") > 1:
                     raise RuntimeError("发现重复地图或全局代价地图发布者")
                 for name, client in clients.items():
-                    future = pending.get(name)
+                    future, sent = pending.get(name, (None, 0.))
                     if future is not None and future.done():
                         result = future.result()
                         states[name] = result.current_state.id if result else -1
                         del pending[name]
+                    elif future is not None and time.monotonic() - sent > 2.:
+                        # A node busy configuring can drop the response; ask again.
+                        client.remove_pending_request(future)
+                        del pending[name]
                     if states.get(name) != 3 and name not in pending and client.service_is_ready():
-                        pending[name] = client.call_async(GetState.Request())
+                        pending[name] = (client.call_async(GetState.Request()), time.monotonic())
                 if all(states.get(name) == 3 for name in clients) and "/map" in received:
                     print("Nav2 生命周期 active，已收到 /map")
                     return 0
