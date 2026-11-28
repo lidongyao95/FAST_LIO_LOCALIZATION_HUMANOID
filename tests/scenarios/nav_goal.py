@@ -41,7 +41,7 @@ class Probe(Node):
   self.create_subscription(Odometry,'/odom',lambda m:setattr(self,'odom',m),10)
   self.create_subscription(Float32,'/localization_3d_confidence',lambda m:setattr(self,'conf',m.data),10)
   self.create_subscription(Bool,'/g1/nav_ready',lambda m:setattr(self,'ready',m.data),10)
-  self.create_subscription(Twist,'/cmd_vel_nav',lambda m:self.commands.append([time.time(),m.linear.x,m.angular.z]),10)
+  self.create_subscription(Twist,'/cmd_vel_nav',lambda m:self.commands.append([time.time(),m.linear.x,m.angular.z,m.linear.y]),10)
   self.create_subscription(Bool,'/g1/obstacle_active',lambda m:setattr(self,'obstacle_active',m.data),10)
   self.create_subscription(PoseStamped,'/g1/obstacle_pose',self.on_obstacle,10)
   self.create_subscription(RosPath,'/plan',self.on_plan,10)
@@ -125,7 +125,7 @@ def main():
   g=NavigateToPose.Goal();g.pose.header.frame_id='map';g.pose.header.stamp=n.get_clock().now().to_msg()
   g.pose.pose.position.x=args.x;g.pose.pose.position.y=args.y
   g.pose.pose.orientation.z=math.sin(args.yaw/2);g.pose.pose.orientation.w=math.cos(args.yaw/2)
-  sent=n.action.send_goal_async(g)
+  sent=n.action.send_goal_async(g);started=len(n.trace)
   assert n.spin_until(lambda:sent.done(),5),'goal send timeout'
   handle=sent.result();assert handle.accepted,'goal rejected'
   res=handle.get_result_async()
@@ -148,8 +148,13 @@ def main():
   assert res.done(),'navigation result unavailable after cancel'
   result['goal_status']=res.result().status
   result['goal_succeeded']=res.result().status==GoalStatus.STATUS_SUCCEEDED
+  walked=n.trace[started:]
+  if len(walked)>1:
+   result['duration_s']=round(walked[-1][0]-walked[0][0],1)
+   result['distance_m']=round(sum(math.hypot(b[1]-a[1],b[2]-a[2]) for a,b in zip(walked,walked[1:])),2)
+   result['mean_speed_mps']=round(result['distance_m']/max(result['duration_s'],1e-6),2)
   result['command_count']=len(n.commands)
-  result['nonzero_commands']=sum(abs(x[1])+abs(x[2])>.01 for x in n.commands)
+  result['nonzero_commands']=sum(abs(x[1])+abs(x[2])+abs(x[3])>.01 for x in n.commands)
   if args.cancel_after is not None:
    n.spin_until(lambda:False,2.)
   result['trace']=n.trace

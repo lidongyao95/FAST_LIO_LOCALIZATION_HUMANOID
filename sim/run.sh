@@ -6,6 +6,7 @@ sim="$repo/sim"
 maps="$repo/sim/generated/maps"
 headless=false
 start_x=0.0 start_y=0.0 start_yaw=0.0
+profile=full
 goal=() obstacle=() test_options=()
 
 usage() {
@@ -21,6 +22,7 @@ map：按住 w/a/s/d 前后左右移动，q/e 转向，松手即停，回车保�
 nav：启动后在 RViz 里用 Nav2 Goal 点目标；--goal X Y 直接发一个目标并等待结果。
 
 nav 的其他参数（主要给测试用）：
+  --profile 名称         导航配置：full（默认，全向 MPPI 控制器）或 base（与真机相同的基础配置）
   --start X Y            机器人起点
   --start-yaw RAD        机器人起始朝向
   --moving-obstacle      场景里加一块来回移动的挡板
@@ -42,6 +44,7 @@ parse_options() {
                 shift 3 ;;
             --start-yaw) need_args 2 "$#" "$1"; start_yaw=$2; shift 2 ;;
             --moving-obstacle) obstacle=(--moving-obstacle); shift ;;
+            --profile) need_args 2 "$#" "$1"; profile=$2; shift 2 ;;
             --obstacle-after|--cancel-after|--obstacle-clear-after)
                 need_args 2 "$#" "$1"
                 if [[ "$1" == --obstacle-after ]]; then injected=true; fi
@@ -165,7 +168,9 @@ run_navigation() {
         "initial_yaw:=$(/usr/bin/python3 -c 'import math,sys; print(math.degrees(float(sys.argv[1])))' "$start_yaw")"
     wait_ready localized --frame base_footprint --seconds 75
     stand_up
-    start_bg nav2 "$sim/start.sh" navigation "map_yaml:=$map_dir/map.yaml" "rviz:=$rviz"
+    local profile_arg=()
+    [[ "$profile" == base ]] || profile_arg=("profile:=$profile")
+    start_bg nav2 "$sim/start.sh" navigation "map_yaml:=$map_dir/map.yaml" "rviz:=$rviz" "${profile_arg[@]}"
     wait_ready nav --node map_server --node planner_server --node controller_server --node bt_navigator --seconds 60
     timeout 15 /usr/bin/python3 "$sim/operator_cli.py" enable-nav >"$run_dir/nav_enable.log" 2>&1 ||
         fail "导航没有接管机器人，查看 nav_enable.log"

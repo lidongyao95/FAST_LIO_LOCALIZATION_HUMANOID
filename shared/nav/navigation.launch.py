@@ -29,9 +29,20 @@ PACKAGES={'map_server':('nav2_map_server','map_server'),
           'bt_navigator':('nav2_bt_navigator','bt_navigator')}
 
 
-def rewrite_params(source,use_sim_time,map_yaml,robot_frame="",planning_obstacles=False,real_navigation=False,ground_z=0.):
+def overlay(base,extra):
+ """Lay a profile over the base parameters. A section naming a plugin replaces the base
+ section, so parameters of the previous plugin do not linger; null removes a key."""
+ for key,value in extra.items():
+  if value is None:base.pop(key,None)
+  elif isinstance(value,dict) and isinstance(base.get(key),dict) and 'plugin' not in value:overlay(base[key],value)
+  else:base[key]=value
+ return base
+
+
+def rewrite_params(source,use_sim_time,map_yaml,robot_frame="",planning_obstacles=False,real_navigation=False,ground_z=0.,profile=None):
  """Rewrite every node section so the launch arguments win over the shared file."""
  params=yaml.safe_load(Path(source).read_text())
+ if profile:overlay(params,yaml.safe_load(Path(profile).read_text()))
  for section in params.values():
   stack=[section] if isinstance(section,dict) else []
   while stack:
@@ -141,12 +152,16 @@ def launch_setup(context):
                  '--check','--scope','navigation','--repo',str(repo)],check=True,timeout=5)
  subprocess.run(['/usr/bin/python3',str(repo/'shared/nav/lifecycle.py'),
                  '--wait-for-empty-graph'],check=True,timeout=12)
+ profile=LaunchConfiguration('profile').perform(context)
+ if profile:
+  profile=repo/'shared/nav'/f'{profile}.yaml'
+  if not profile.is_file():raise ValueError(f'Unknown navigation profile: {profile}')
  ground_z=float(LaunchConfiguration('ground_z').perform(context)) if mode=='real' else 0.
  if not math.isfinite(ground_z):raise ValueError('ground_z must be finite')
  params=rewrite_params(LaunchConfiguration('params_file').perform(context),use_sim_time,map_yaml,
                        robot_frame,planning_obstacles=mode in ('plan','real'),real_navigation=mode=='real',
-                       ground_z=ground_z)
- actions.append(LogInfo(msg=f'G1 Nav2 mode={mode} use_sim_time={use_sim_time} map={map_yaml} params={params}'))
+                       ground_z=ground_z,profile=profile)
+ actions.append(LogInfo(msg=f'G1 Nav2 mode={mode} profile={profile or "base"} use_sim_time={use_sim_time} map={map_yaml} params={params}'))
  actions.append(remove_on_shutdown(params))
  if mode in ('plan','real'):
   obstacle_input=ExecuteProcess(
@@ -184,6 +199,8 @@ def generate_launch_description():
      DeclareLaunchArgument('robot_frame',default_value='',
          description='Optional global costmap robot frame in plan mode'),
      DeclareLaunchArgument('ground_z',default_value='0.0',description='real mode: map floor height from export metadata'),
+     DeclareLaunchArgument('profile',default_value='',
+         description='Name of a parameter profile in shared/nav laid over params.yaml, e.g. full'),
      DeclareLaunchArgument('rviz',default_value='true'),
      OpaqueFunction(function=launch_setup),
  ])
