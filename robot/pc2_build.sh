@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs on PC2, started by `./g1 robot deploy build`. The build keeps going if SSH disconnects.
+# Runs on PC2, started by `./g1_slam robot deploy build`. The build keeps going if SSH disconnects.
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo"

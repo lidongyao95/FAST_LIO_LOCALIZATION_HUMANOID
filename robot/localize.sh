@@ -8,10 +8,10 @@ source "$repo/robot/live_env.sh"
 usage() {
     cat <<'USAGE'
 用法：
-  ./g1 robot status
+  ./g1_slam robot status
       查看雷达、FAST-LIO、定位和运控模式。
   robot/localize.sh localize --map MAP.ply [--initial X Y Z ROLL PITCH YAW]
-      在地图上自动找到机器人位置并持续定位，期间保持机器人静止。由 ./g1 robot nav 调用。
+      在地图上自动找到机器人位置并持续定位，期间保持机器人静止。由 ./g1_slam robot nav 调用。
       --initial 手动给出初始位姿（米、度），调试用。
 USAGE
 }

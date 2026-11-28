@@ -7,9 +7,9 @@ versions={'unitree_sdk2':'d1abf001220d3e5f59e00a0c4aaa595e00089a4a','unitree_rl_
 for name,sha in versions.items():
  path=root/'.deps/src'/name
  if not (path/'.git').exists():
-  raise SystemExit(f'{name}: submodule not initialized; run ./g1 setup')
+  raise SystemExit(f'{name}: submodule not initialized; run ./g1_slam setup')
  actual=subprocess.check_output(['git','-C',str(path),'rev-parse','HEAD'],text=True).strip()
- if actual!=sha:raise SystemExit(f'{name}: expected {sha}, found {actual}; run ./g1 setup')
+ if actual!=sha:raise SystemExit(f'{name}: expected {sha}, found {actual}; run ./g1_slam setup')
 up=root/'.deps/src/unitree_rl_mjlab/deploy/robots/g1/config';out=root/'.deps/g1-controller';out.mkdir(exist_ok=True)
 cfg=yaml.safe_load((up/'config.yaml').read_text());fsm=cfg['FSM'];fsm['_']={k:v for k,v in fsm['_'].items() if k in ['Passive','FixStand','Velocity']}
 for k in list(fsm):

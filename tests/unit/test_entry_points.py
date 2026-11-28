@@ -1,4 +1,4 @@
-"""Every script and program must be reachable from ./g1 or named in the three guides.
+"""Every script and program must be reachable from ./g1_slam or named in the three guides.
 
 A file nobody calls and no guide mentions is dead weight that only its author knows about.
 """
@@ -38,13 +38,13 @@ class EntryPoints(unittest.TestCase):
     def test_every_file_is_reachable(self):
         files = tracked()
         code = [f for f in files if f.startswith(CODE_DIRS) and f.endswith(CODE_SUFFIXES)]
-        roots = ['g1', *[g for g in GUIDES if (ROOT / g).is_file()]]
+        roots = ['g1_slam', *[g for g in GUIDES if (ROOT / g).is_file()]]
         # pytest collects the unit tests by directory, not by file name.
         reached = {f for f in code if f.startswith('tests/unit/')}
         queue = [*roots, *reached]
         while queue:
             current = ROOT / queue.pop()
-            if current.suffix not in TEXT_SUFFIXES and current.name != 'g1':
+            if current.suffix not in TEXT_SUFFIXES and current.name != 'g1_slam':
                 continue
             text = current.read_text(errors='ignore')
             for path in references(text, code):
@@ -52,7 +52,7 @@ class EntryPoints(unittest.TestCase):
                     reached.add(path)
                     queue.append(path)
         orphans = sorted(set(code) - reached)
-        self.assertEqual(orphans, [], 'not reachable from ./g1 or the guides')
+        self.assertEqual(orphans, [], 'not reachable from ./g1_slam or the guides')
 
 
 if __name__ == '__main__':

@@ -45,7 +45,7 @@ done
 if ((${#missing[@]})); then
     printf 'Missing ROS build prerequisites:\n' >&2
     printf '  %s\n' "${missing[@]}" >&2
-    echo "Run ./g1 setup and install ROS 2 first." >&2
+    echo "Run ./g1_slam setup and install ROS 2 first." >&2
     exit 1
 fi
 

@@ -8,9 +8,9 @@ out="$repo/sim/generated/test"
 usage() {
     cat <<'EOF'
 用法：
-  ./g1 test          单元测试（不需要仿真器，约 10 秒）
-  ./g1 test sim      仿真场景测试：建图、带障碍导航、取消目标、高速行走时的定位精度（约 10 分钟）
-  ./g1 test walk     行走速度扫描：各方向指令速度与实际速度对比（约 7 分钟）
+  ./g1_slam test          单元测试（不需要仿真器，约 10 秒）
+  ./g1_slam test sim      仿真场景测试：建图、带障碍导航、取消目标、高速行走时的定位精度（约 10 分钟）
+  ./g1_slam test walk     行走速度扫描：各方向指令速度与实际速度对比（约 7 分钟）
 结果保存在 sim/generated/test/。
 EOF
 }
@@ -41,14 +41,14 @@ case "${1:-unit}" in
     sim)
         mkdir -p "$out"
         step '建图'
-        "$repo/g1" sim map test --headless < <(printf 'w 10\nq 30\nw 10\nq 30\nw 6\n\n'; sleep 600) &
+        "$repo/g1_slam" sim map test --headless < <(printf 'w 10\nq 30\nw 10\nq 30\nw 6\n\n'; sleep 600) &
         wait $!
         step '导航到目标，途中放入障碍'
-        "$repo/g1" sim nav test --headless --goal 3.0 0.0 --obstacle-after 2
+        "$repo/g1_slam" sim nav test --headless --goal 3.0 0.0 --obstacle-after 2
         step '取消目标'
-        "$repo/g1" sim nav test --headless --goal 3.0 0.0 --cancel-after 4
+        "$repo/g1_slam" sim nav test --headless --goal 3.0 0.0 --cancel-after 4
         step '高速行走时的定位精度'
-        setsid "$repo/g1" sim nav test --headless >"$out/nav_session.log" 2>&1 < <(sleep 900) &
+        setsid "$repo/g1_slam" sim nav test --headless >"$out/nav_session.log" 2>&1 < <(sleep 900) &
         session=$!
         trap 'kill -INT -- "-$session" 2>/dev/null || true; wait "$session" 2>/dev/null || true' EXIT
         wait_for_line "$out/nav_session.log" '定位和导航已就绪' 240 "$session"

@@ -6,16 +6,16 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/../shared/lib.sh"
 usage() {
     cat <<'EOF'
 用法：
-  ./g1 robot map 地图名 [--seconds N]
+  ./g1_slam robot map 地图名 [--seconds N]
       启动雷达和 FAST-LIO，带着机器人走一圈，按回车保存并导出地图。
       --seconds N：不等回车，采集 N 秒后自动保存。
-  ./g1 robot export 地图名 [--resolution 米] [--voxel 米] [--max-range 米]
+  ./g1_slam robot export 地图名 [--resolution 米] [--voxel 米] [--max-range 米]
       用已有的点云重新导出地图（想换分辨率或裁剪范围时用）。
 
 现场有人走动时，用 DUFOMap 去掉动态点（可选）：
-  ./g1 robot scans 名称 --lidar-in-body X Y Z [--frames N]
+  ./g1_slam robot scans 名称 --lidar-in-body X Y Z [--frames N]
       在 FAST-LIO 运行时逐帧采集扫描，默认 120 帧。
-  ./g1 robot clean 扫描目录 地图名
+  ./g1_slam robot clean 扫描目录 地图名
       在装有 dufomap 的 x86 电脑上清理动态点并导出地图。
 
 地图保存在 $G1_DATA/maps/地图名/，默认 G1_DATA=~/ldy/g1_real_data。
@@ -93,7 +93,7 @@ case "$mode" in
         stop_owned
         pids=()
         export_map "$G1_DATA/maps/$name.pcd" "$G1_DATA/maps/$name" --resolution "$resolution" --voxel "$voxel"
-        say "下一步：./g1 robot nav $name"
+        say "下一步：./g1_slam robot nav $name"
         ;;
     export)
         need_args 1 "$#" "$mode"

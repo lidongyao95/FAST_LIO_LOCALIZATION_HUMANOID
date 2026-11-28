@@ -11,8 +11,8 @@ goal=() obstacle=() test_options=()
 usage() {
     cat <<'EOF'
 用法：
-  ./g1 sim map [地图名]
-  ./g1 sim nav [地图名] [--goal X Y]
+  ./g1_slam sim map [地图名]
+  ./g1_slam sim nav [地图名] [--goal X Y]
 
 地图名默认是 room，地图保存在 sim/generated/maps/ 下。
 没有图形界面时自动以无窗口方式运行，也可以加 --headless 强制无窗口。
@@ -75,7 +75,7 @@ preflight() {
     "$headless" || ros_packages rviz2
     local artifact
     for artifact in .deps/venv/bin/python .deps/controller-build/g1_ctrl .deps/controller-build/libg1_dds_bridge.so .deps/g1-controller/config.yaml; do
-        [[ -s "$repo/$artifact" ]] || fail "缺少 ${artifact}；先运行 ./g1 setup"
+        [[ -s "$repo/$artifact" ]] || fail "缺少 ${artifact}；先运行 ./g1_slam setup"
     done
     preflight_processes all
     lock_run simulation
@@ -151,7 +151,7 @@ run_mapping() {
     check_file "$map_dir/map.ply"
     check_file "$map_dir/map.yaml"
     say "建图完成：$map_dir"
-    say "下一步：./g1 sim nav $map_name"
+    say "下一步：./g1_slam sim nav $map_name"
 }
 
 run_navigation() {

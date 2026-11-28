@@ -6,11 +6,11 @@ source "$repo/robot/live_env.sh"
 
 usage() {
     cat <<'USAGE'
-用法：./g1 robot nav 地图名 [--plan-only] [--port 18081]
+用法：./g1_slam robot nav 地图名 [--plan-only] [--port 18081]
 
 自动完成定位、启动 Nav2 和导航网页。定位期间保持机器人静止。
 网页里点目标 → 规划路径 → 开始实机导航；“取消并停车”随时终止。
-开始导航前，机器人要处于运控模式 501（./g1 robot fsm get 查看）。
+开始导航前，机器人要处于运控模式 501（./g1_slam robot fsm get 查看）。
 
 --plan-only  只规划路径，不让机器人走。
 Ctrl+C 结束定位、Nav2 和网页。
@@ -58,7 +58,7 @@ value = float(json.loads(Path(sys.argv[1]).with_name('metadata.json').read_text(
 if not math.isfinite(value): raise ValueError('floor_z 必须有限')
 print(value)
 FLOOR
-    ) || fail "地图目录缺少 metadata.json；用 ./g1 robot export 重新导出"
+    ) || fail "地图目录缺少 metadata.json；用 ./g1_slam robot export 重新导出"
     args+=(--node controller_server --node bt_navigator)
     web_args=(--real-navigation --sdk-executable "$sdk" --robot-interface "$interface")
 fi

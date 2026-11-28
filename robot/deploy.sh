@@ -3,7 +3,7 @@
 set -euo pipefail
 case "${1:-check}" in
   -h|--help)
-    echo "用法：./g1 robot deploy [check|sync|build]"
+    echo "用法：./g1_slam robot deploy [check|sync|build]"
     echo '在开发机通过有线 SSH 核对 PC2 身份并查询当次无线 IP；检查进程/服务、部署依赖/产物及反向源码差异；只读，不启动机器人程序。'
     echo 'sync：以本地源码覆盖 PC2，并删除同步范围内远端多余文件；保留排除的构建产物与数据。'
     echo 'build：构建已同步的 PC2 ARM64/Foxy 源码，后台记录日志并实时跟踪，成功后运行 robot 自检。'
@@ -54,7 +54,7 @@ import os
 from pathlib import Path
 repo = Path.home() / 'ldy/FAST_LIO_LOCALIZATION_HUMANOID'
 checks = {
- '源码': ['g1', 'shared/self_check.sh', 'shared/processes.py',
+ '源码': ['g1_slam', 'shared/self_check.sh', 'shared/processes.py',
           'packages/fast_lio/package.xml', 'packages/open3d_loc/package.xml',
           '.deps/src/livox_ros_driver2/package.xml', '.deps/src/Livox-SDK2/CMakeLists.txt'],
  '安装产物': ['install/local_setup.bash',

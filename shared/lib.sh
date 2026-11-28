@@ -70,7 +70,7 @@ load_ros() {
     export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-1}"
     export ROS_LOG_DIR="$run_dir/ros"
     if [[ -n "${G1_DATA:-}" ]]; then export G1_DATA="$(absolute "$G1_DATA")"; fi
-    source "$repo/shared/env.sh" || fail "ROS 环境加载失败；先运行 ./g1 setup"
+    source "$repo/shared/env.sh" || fail "ROS 环境加载失败；先运行 ./g1_slam setup"
     command -v setsid >/dev/null || fail "缺少 setsid（util-linux）"
     command -v flock >/dev/null || fail "缺少 flock（util-linux）"
     trap stop_owned EXIT

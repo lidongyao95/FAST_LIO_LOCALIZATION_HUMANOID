@@ -7,24 +7,24 @@ export PYTHONNOUSERSITE=1
 
 usage() {
     cat <<'EOF'
-用法：./g1 <命令>
+用法：./g1_slam <命令>
 
 仿真（Ubuntu 22.04 / ROS 2 Humble）
-  ./g1 setup                安装依赖并编译
-  ./g1 sim map [地图名]      在虚拟房间里走一圈并保存地图
-  ./g1 sim nav [地图名]      用保存的地图定位和导航
-  ./g1 test                 运行单元测试
-  ./g1 test sim             运行仿真场景测试
+  ./g1_slam setup                安装依赖并编译
+  ./g1_slam sim map [地图名]      在虚拟房间里走一圈并保存地图
+  ./g1_slam sim nav [地图名]      用保存的地图定位和导航
+  ./g1_slam test                 运行单元测试
+  ./g1_slam test sim             运行仿真场景测试
 
 真机（在 PC2 上运行）
-  ./g1 robot check          检查 PC2 环境
-  ./g1 robot map 地图名      建图并导出
-  ./g1 robot nav 地图名      定位并打开导航网页
-  ./g1 robot status         查看雷达、里程计和定位状态
-  ./g1 robot fsm get|set N  查询或切换运控模式
+  ./g1_slam robot check          检查 PC2 环境
+  ./g1_slam robot map 地图名      建图并导出
+  ./g1_slam robot nav 地图名      定位并打开导航网页
+  ./g1_slam robot status         查看雷达、里程计和定位状态
+  ./g1_slam robot fsm get|set N  查询或切换运控模式
 
 真机部署（在开发电脑上运行，用网线连接 PC2）
-  ./g1 robot deploy check|sync|build
+  ./g1_slam robot deploy check|sync|build
 
 每条命令加 --help 查看参数。
 EOF
