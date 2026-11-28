@@ -70,7 +70,7 @@ class ArchitectureTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         self.context = dict(repo=str(ROOT), mode='plan', use_sim_time='false',
             map_yaml='/field/map.yaml', params_file=str(ROOT / 'shared/nav/params.yaml'),
-            robot_frame='body', rviz='false')
+            robot_frame='body', rviz='false', profile='')
 
     def launch(self, **values):
         return self.module.launch_setup({**self.context, **values})
@@ -121,6 +121,27 @@ class ArchitectureTests(unittest.TestCase):
                          original['local_costmap']['local_costmap']['ros__parameters']['obstacle_layer'])
         self.assertEqual(rewritten['map_server']['ros__parameters']['yaml_filename'], '/field/map.yaml')
         self.assertEqual(source.read_bytes(), before)
+
+    def test_full_profile_replaces_the_controller_and_footprint(self):
+        source = ROOT / 'shared/nav/params.yaml'
+        before = source.read_bytes()
+        rewritten = yaml.safe_load(Path(self.module.rewrite_params(
+            source, True, '/sim/map.yaml', profile=ROOT / 'shared/nav/full.yaml')).read_text())
+        controller = rewritten['controller_server']['ros__parameters']['FollowPath']
+        self.assertEqual(controller['plugin'], 'nav2_mppi_controller::MPPIController')
+        self.assertEqual(controller['motion_model'], 'Omni')
+        # Nothing of the replaced DWB section may linger under the new plugin.
+        self.assertNotIn('max_vel_x', controller)
+        for name in ('local_costmap', 'global_costmap'):
+            costmap = rewritten[name][name]['ros__parameters']
+            self.assertNotIn('footprint', costmap)
+            self.assertEqual(costmap['robot_radius'], 0.30)
+            self.assertIn('obstacle_layer', costmap)
+        self.assertEqual(source.read_bytes(), before)
+
+    def test_unknown_profile_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self.launch(mode='full', use_sim_time='true', robot_frame='', profile='missing')
 
     def test_both_modes_run_process_and_ros_graph_preflight_before_starting(self):
         for mode in ('plan', 'full'):
