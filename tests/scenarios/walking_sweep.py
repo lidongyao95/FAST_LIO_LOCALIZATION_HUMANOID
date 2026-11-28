@@ -9,7 +9,7 @@ from pathlib import Path
 import rclpy
 from geometry_msgs.msg import PoseStamped, Twist
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import Float32MultiArray, String
 from std_srvs.srv import Trigger
 
 CASES = [
@@ -40,6 +40,8 @@ class Sweep(Node):
         self.mode_pub = self.create_publisher(String, '/g1/controller_mode', 10)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.create_subscription(PoseStamped, '/g1_sim/ground_truth', self.on_pose, 10)
+        self.create_subscription(Float32MultiArray, '/g1_sim/body_extent', self.on_extent, 10)
+        self.extent = None
         self.reset_srv = self.create_client(Trigger, '/g1/reset')
         self.release_srv = self.create_client(Trigger, '/g1/release')
 
@@ -47,6 +49,12 @@ class Sweep(Node):
         p, q = msg.pose.position, msg.pose.orientation
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         self.pose = (stamp, p.x, p.y, p.z, (q.w, q.x, q.y, q.z))
+
+    def on_extent(self, msg):
+        # Keep the widest reach seen on each side: xmin, xmax, ymin, ymax.
+        low_high = [min, max, min, max]
+        self.extent = list(msg.data) if self.extent is None else [
+            pick(old, new) for pick, old, new in zip(low_high, self.extent, msg.data)]
 
     def run_for(self, seconds, mode, command=(0., 0., 0.), record=False):
         end = time.monotonic() + seconds
@@ -80,12 +88,15 @@ class Sweep(Node):
         self.call(self.release_srv)
         self.run_for(2.5, 'velocity')
         self.samples = []
+        self.extent = None
         self.run_for(seconds, 'velocity', command, record=True)
         moving = self.samples
         self.samples = []
         self.run_for(2.5, 'velocity', record=True)
         stopping = self.samples
-        return summarize(command, moving, stopping)
+        result = summarize(command, moving, stopping)
+        result['body_extent'] = [round(v, 3) for v in self.extent] if self.extent else None
+        return result
 
 
 def summarize(command, moving, stopping):

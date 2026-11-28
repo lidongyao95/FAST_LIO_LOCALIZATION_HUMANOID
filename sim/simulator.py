@@ -11,7 +11,7 @@ from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import Trigger, SetBool
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, Float32MultiArray
 from sensors import Sensors, generate, ROOT
 
 FIXED_OBSTACLE_PRESETS = ((3.6, -2.4), (-3.8, -2.6), (1.3, 2.1))
@@ -66,6 +66,23 @@ class WalkingSim(Sensors):
                 SetBool, f'/g1/fixed_obstacle_{index + 1}',
                 lambda req, res, index=index: self.set_fixed_obstacle(index, req, res))
         self.get_logger().info('DDS mode: base held until /g1/release, no scripted translation or internal PD')
+        # Corners of every robot geom's bounding box, used to report how much floor the body covers.
+        root=self.model.body_rootid[self.base]
+        self.body_geoms=np.array([g for g in range(self.model.ngeom)
+                                  if self.model.body_rootid[self.model.geom_bodyid[g]]==root])
+        signs=np.array([[x,y,z] for x in (-1,1) for y in (-1,1) for z in (-1,1)],dtype=float)
+        box=self.model.geom_aabb[self.body_geoms]
+        self.body_corners=box[:,None,:3]+signs[None]*box[:,None,3:]
+        self.extent_pub=self.create_publisher(Float32MultiArray,'/g1_sim/body_extent',10)
+    def body_extent(self):
+        """Floor area covered by the robot in the heading-aligned frame of base_footprint: xmin, xmax, ymin, ymax."""
+        rotation=self.data.geom_xmat[self.body_geoms].reshape(-1,3,3)
+        corners=np.einsum('gij,gcj->gci',rotation,self.body_corners)+self.data.geom_xpos[self.body_geoms][:,None]
+        offset=corners.reshape(-1,3)[:,:2]-self.data.site_xpos[self.imu_site][:2]
+        forward=self.data.site_xmat[self.imu_site].reshape(3,3)[:2,0]
+        forward=forward/np.linalg.norm(forward)
+        along=offset@forward;across=offset@np.array([-forward[1],forward[0]])
+        return [float(along.min()),float(along.max()),float(across.min()),float(across.max())]
     def release(self,req,res):
         res.success=self.fresh
         if self.fresh:self.data.eq_active[0]=False
@@ -132,6 +149,7 @@ class WalkingSim(Sensors):
                 self.data.mocap_pos[self.obstacle_mocap_id].tolist())
             pose.pose.orientation.w=1.
             self.obstacle_pose_pub.publish(pose)
+            self.extent_pub.publish(Float32MultiArray(data=self.body_extent()))
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--headless',action='store_true');p.add_argument('--domain',type=int,default=72)

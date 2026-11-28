@@ -78,7 +78,7 @@ preflight() {
         [[ -s "$repo/$artifact" ]] || fail "缺少 ${artifact}；先运行 ./g1_slam setup"
     done
     preflight_processes all
-    lock_run simulation
+    lock_run "simulation-$ROS_DOMAIN_ID"
     probe free --node g1_mujoco_sensors --node global_localization_node \
         --topic /clock --topic /Odometry_loc --topic /livox/imu --topic /g1_sim/ground_truth \
         --topic /cmd_vel --topic /cmd_vel_nav ||
