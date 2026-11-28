@@ -44,8 +44,9 @@ case "${1:-unit}" in
         "$repo/g1_slam" sim map test --headless < <(printf 'w 10\nq 30\nw 10\nq 30\nw 6\n\n'; sleep 600) &
         wait $!
         step '自动重定位'
-        /usr/bin/python3 "$repo/tests/scenarios/global_initialization.py" --pcd "$repo/sim/generated/maps/test/map.pcd" \
-            --binary "$repo/install/open3d_loc/lib/open3d_loc/global_initialize" --out "$out/global_initialization"
+        (ros_env; /usr/bin/python3 "$repo/tests/scenarios/global_initialization.py" \
+            --pcd "$repo/sim/generated/maps/test/map.pcd" \
+            --binary "$repo/install/open3d_loc/lib/open3d_loc/global_initialize" --out "$out/global_initialization")
         step '导航到目标，途中放入障碍'
         "$repo/g1_slam" sim nav test --headless --goal 3.0 0.0 --obstacle-after 2
         step '取消目标'
