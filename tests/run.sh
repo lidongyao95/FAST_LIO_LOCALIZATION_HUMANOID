@@ -54,7 +54,8 @@ case "${1:-unit}" in
         step '高速行走时的定位精度'
         setsid "$repo/g1_slam" sim nav test --headless >"$out/nav_session.log" 2>&1 < <(sleep 900) &
         session=$!
-        trap 'kill -INT -- "-$session" 2>/dev/null || true; wait "$session" 2>/dev/null || true' EXIT
+        # Background jobs ignore SIGINT, so stop the session with SIGTERM.
+        trap 'kill -TERM -- "-$session" 2>/dev/null || true; wait "$session" 2>/dev/null || true' EXIT
         wait_for_line "$out/nav_session.log" '定位和导航已就绪' 240 "$session"
         ros_env
         /usr/bin/python3 "$repo/tests/scenarios/localization_speed.py" --output "$out/localization_speed.json"
@@ -65,7 +66,7 @@ case "${1:-unit}" in
         export ROS_DOMAIN_ID=${G1_TEST_DOMAIN:-81}
         setsid "$repo/sim/start.sh" simulator --headless >"$out/walk_simulator.log" 2>&1 &
         simulator=$!
-        trap 'kill -INT -- "-$simulator" "-${controller:-0}" 2>/dev/null || true; wait 2>/dev/null || true' EXIT
+        trap 'kill -TERM -- "-$simulator" "-${controller:-0}" 2>/dev/null || true; wait 2>/dev/null || true' EXIT
         sleep 6
         setsid "$repo/sim/start.sh" controller >"$out/walk_controller.log" 2>&1 </dev/null &
         controller=$!
