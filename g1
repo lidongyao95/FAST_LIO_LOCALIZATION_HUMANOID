@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Single entry point. Every script in this repository is reached from here.
+set -e
+repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Packages installed with `pip install --user` shadow the ROS system Python.
+export PYTHONNOUSERSITE=1
+
+usage() {
+    cat <<'EOF'
+用法：./g1 <命令>
+
+仿真（Ubuntu 22.04 / ROS 2 Humble）
+  ./g1 setup                安装依赖并编译
+  ./g1 sim map [地图名]      在虚拟房间里走一圈并保存地图
+  ./g1 sim nav [地图名]      用保存的地图定位和导航
+  ./g1 test                 运行单元测试
+  ./g1 test sim             运行仿真场景测试
+
+真机（在 PC2 上运行）
+  ./g1 robot check          检查 PC2 环境
+  ./g1 robot map 地图名      建图并导出
+  ./g1 robot nav 地图名      定位并打开导航网页
+  ./g1 robot status         查看雷达、里程计和定位状态
+  ./g1 robot fsm get|set N  查询或切换运控模式
+
+真机部署（在开发电脑上运行，用网线连接 PC2）
+  ./g1 robot deploy check|sync|build
+
+每条命令加 --help 查看参数。
+EOF
+}
+
+case "${1:-}" in
+    ''|-h|--help) usage ;;
+    setup) shift; exec "$repo/shared/setup.sh" "$@" ;;
+    sim) shift; exec "$repo/sim/run.sh" "$@" ;;
+    test) shift; exec "$repo/tests/run.sh" "$@" ;;
+    robot)
+        shift
+        case "${1:-}" in
+            check) shift; exec "$repo/shared/self_check.sh" robot "$@" ;;
+            map|scans|clean|export) exec "$repo/robot/mapping.sh" "$@" ;;
+            nav) shift; exec "$repo/robot/nav.sh" "$@" ;;
+            status) shift; exec "$repo/robot/localize.sh" status "$@" ;;
+            fsm) shift; exec "$repo/robot/sdk/fsm.sh" "$@" ;;
+            deploy) shift; exec "$repo/robot/deploy.sh" "$@" ;;
+            *) usage; exit 2 ;;
+        esac ;;
+    *) usage; exit 2 ;;
+esac

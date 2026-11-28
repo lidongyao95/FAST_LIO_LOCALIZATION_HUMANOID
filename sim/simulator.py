@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Single MuJoCo owner; official low-level DDS + independent ROS sensors."""
+import argparse
+import ctypes
+import math
+import time
+import numpy as np
+import mujoco
+import rclpy
+from geometry_msgs.msg import PoseStamped
+from std_srvs.srv import Trigger, SetBool
+from rosgraph_msgs.msg import Clock
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Bool
+from sensors import Sensors, generate, ROOT
+
+FIXED_OBSTACLE_PRESETS = ((3.6, -2.4), (-3.8, -2.6), (1.3, 2.1))
+MOVING_OBSTACLE_START = (2.2, -1.2)
+MOVING_OBSTACLE_END = (2.2, 1.2)
+
+
+class WalkingSim(Sensors):
+    def __init__(self, domain, start_x=0., start_y=0., start_yaw=0.,
+                 obstacle_x=2.2, obstacle_y=.4,
+                 fixed_obstacles=(), moving_to=None, moving_speed=.2,
+                 show_moving=False, show_fixed=False):
+        super().__init__()
+        self.model.qpos0[0:2]=[start_x,start_y]
+        self.model.qpos0[3:7]=[math.cos(start_yaw/2),0.,0.,math.sin(start_yaw/2)]
+        support=self.model.body('support')
+        support.pos[0:2]=[start_x,start_y]
+        support.quat[:]=self.model.qpos0[3:7]
+        mujoco.mj_resetData(self.model,self.data);mujoco.mj_forward(self.model,self.data)
+        self.epoch_ns=0
+        self.dds=ctypes.CDLL(str(ROOT/'.deps/controller-build/libg1_dds_bridge.so'))
+        ptr=ctypes.POINTER(ctypes.c_double)
+        self.dds.bridge_init.argtypes=[ctypes.c_int]
+        self.dds.bridge_step.argtypes=[ptr]*6+[ctypes.c_int]
+        self.dds.bridge_init(domain)
+        self.ptr=ptr
+        self.obstacle_xy=[float(obstacle_x),float(obstacle_y)]
+        self.obstacle_active=False
+        obstacle_body=self.model.body('nav_dynamic_obstacle').id
+        self.obstacle_mocap_id=int(self.model.body_mocapid[obstacle_body])
+        self.moving_to = moving_to
+        self.moving_speed = moving_speed
+        self.fixed_obstacles = fixed_obstacles
+        self.fixed_ids = [
+            int(self.model.body(f'fixed_obstacle_{i}').mocapid[0])
+            for i in range(1, len(fixed_obstacles) + 1)
+        ]
+        self.show_moving = show_moving
+        self.show_fixed = show_fixed
+        self.reset_obstacles()
+        self.fresh=False;self.reset_wall=False
+        self.clock_pub=self.create_publisher(Clock,'/clock',10)
+        self.joint_pub=self.create_publisher(JointState,'/joint_states',10)
+        self.released_pub=self.create_publisher(Bool,'/g1/released',10)
+        self.obstacle_pub=self.create_publisher(Bool,'/g1/obstacle_active',10)
+        self.obstacle_pose_pub=self.create_publisher(PoseStamped,'/g1/obstacle_pose',10)
+        self.create_service(Trigger,'/g1/release',self.release)
+        self.create_service(Trigger,'/g1/reset',self.reset)
+        self.create_service(SetBool,'/g1/obstacle',self.obstacle)
+        for index in range(len(self.fixed_ids)):
+            self.create_service(
+                SetBool, f'/g1/fixed_obstacle_{index + 1}',
+                lambda req, res, index=index: self.set_fixed_obstacle(index, req, res))
+        self.get_logger().info('DDS mode: base held until /g1/release, no scripted translation or internal PD')
+    def release(self,req,res):
+        res.success=self.fresh
+        if self.fresh:self.data.eq_active[0]=False
+        res.message='Base released' if self.fresh else 'No fresh LowCmd; keeping support'
+        return res
+    def reset(self,req,res):
+        mujoco.mj_resetData(self.model,self.data);mujoco.mj_forward(self.model,self.data)
+        self.reset_obstacles()
+        self.epoch_ns=0;self.next_scan=0.;self.reset_wall=True
+        res.success=True;res.message='Reset; restart localization after controller is ready'
+        return res
+    def reset_obstacles(self):
+        self.set_obstacle(self.show_moving)
+        for index in range(len(self.fixed_ids)):
+            self.place_fixed_obstacle(index, self.show_fixed)
+
+    def set_obstacle(self,active):
+        self.obstacle_active=bool(active)
+        self.obstacle_started = self.data.time
+        z=.75 if self.obstacle_active else -5.
+        self.data.mocap_pos[self.obstacle_mocap_id]=[self.obstacle_xy[0],self.obstacle_xy[1],z]
+    def obstacle(self,req,res):
+        self.set_obstacle(req.data)
+        res.success=True
+        res.message=('Dynamic obstacle placed' if req.data else 'Dynamic obstacle removed')
+        self.get_logger().warn(res.message+f' at ({self.obstacle_xy[0]:.2f}, {self.obstacle_xy[1]:.2f})')
+        return res
+    def place_fixed_obstacle(self, index, active):
+        x, y = self.fixed_obstacles[index]
+        self.data.mocap_pos[self.fixed_ids[index]] = [x, y, .75 if active else -5.]
+
+    def set_fixed_obstacle(self, index, req, res):
+        self.place_fixed_obstacle(index, req.data)
+        res.success = True
+        res.message = f'Fixed obstacle {index + 1}: {"placed" if req.data else "removed"}'
+        return res
+
+    def apply_control(self):
+        if self.obstacle_active and self.moving_to is not None:
+            start = np.asarray(self.obstacle_xy)
+            offset = np.asarray(self.moving_to) - start
+            distance = np.linalg.norm(offset)
+            travelled = (self.data.time - self.obstacle_started) * self.moving_speed
+            phase = (travelled / distance) % 2.
+            self.data.mocap_pos[self.obstacle_mocap_id, :2] = start + offset * (1. - abs(1. - phase))
+        arrays=[np.ascontiguousarray(x,dtype=np.float64) for x in [self.data.qpos[7:],self.data.qvel[6:],self.data.sensor('imu_quat').data,self.data.sensor('imu_gyro').data,self.data.sensor('imu_acc').data]]
+        torque=np.zeros(29)
+        self.fresh=bool(self.dds.bridge_step(*[x.ctypes.data_as(self.ptr) for x in arrays],torque.ctypes.data_as(self.ptr),round(self.data.time*1000)))
+        self.data.ctrl[:]=np.clip(torque,self.model.actuator_ctrlrange[:,0],self.model.actuator_ctrlrange[:,1])
+    def step(self):
+        super().step()
+        clock=Clock();clock.clock=rclpy.time.Time(nanoseconds=round(self.data.time*1e9)).to_msg();self.clock_pub.publish(clock)
+        if int(self.data.time*500)%10==0:
+            msg=JointState();msg.header.stamp=rclpy.time.Time(nanoseconds=round(self.data.time*1e9)).to_msg()
+            msg.name=[self.model.joint(i).name for i in range(1,self.model.njnt)]
+            msg.position=self.data.qpos[7:].tolist();msg.velocity=self.data.qvel[6:].tolist();self.joint_pub.publish(msg)
+        if int(self.data.time*500)%25==0:
+            released=Bool();released.data=not bool(self.data.eq_active[0]);self.released_pub.publish(released)
+            obstacle=Bool();obstacle.data=self.obstacle_active;self.obstacle_pub.publish(obstacle)
+            pose=PoseStamped()
+            pose.header.stamp=rclpy.time.Time(nanoseconds=round(self.data.time*1e9)).to_msg()
+            pose.header.frame_id='map'
+            pose.pose.position.x, pose.pose.position.y, pose.pose.position.z = (
+                self.data.mocap_pos[self.obstacle_mocap_id].tolist())
+            pose.pose.orientation.w=1.
+            self.obstacle_pose_pub.publish(pose)
+
+def main():
+    p=argparse.ArgumentParser();p.add_argument('--headless',action='store_true');p.add_argument('--domain',type=int,default=72)
+    p.add_argument('--start-x',type=float,default=0.);p.add_argument('--start-y',type=float,default=0.)
+    p.add_argument('--start-yaw',type=float,default=0.)
+    p.add_argument('--obstacle-x',type=float,default=2.2)
+    p.add_argument('--obstacle-y',type=float,default=.4)
+    p.add_argument('--moving-obstacle', action='store_true', help='Start with the moving obstacle preset')
+    p.add_argument('--fixed-obstacles', type=int, choices=range(4),
+                   help='Number of fixed obstacle presets to place at startup')
+    p.add_argument('--fixed-obstacle', type=float, nargs=2, action='append',
+                   default=[], metavar=('X', 'Y'), help='Optional fixed obstacle, up to three')
+    p.add_argument('--moving-to', type=float, nargs=2, metavar=('X', 'Y'),
+                   help='Patrol endpoint for /g1/obstacle; repeats back and forth')
+    p.add_argument('--moving-speed', type=float, default=.2, help='Patrol speed in m/s')
+    args=p.parse_args()
+    if args.moving_obstacle:
+        if args.moving_to is not None:
+            p.error('--moving-obstacle and --moving-to are mutually exclusive')
+        args.obstacle_x, args.obstacle_y = MOVING_OBSTACLE_START
+        args.moving_to = MOVING_OBSTACLE_END
+    if args.fixed_obstacles is not None:
+        if args.fixed_obstacle:
+            p.error('--fixed-obstacles and --fixed-obstacle are mutually exclusive')
+        args.fixed_obstacle = FIXED_OBSTACLE_PRESETS[:args.fixed_obstacles]
+    if len(args.fixed_obstacle) > 3:
+        p.error('at most three --fixed-obstacle options are supported')
+    start = (args.obstacle_x, args.obstacle_y)
+    coordinates = [start, *args.fixed_obstacle]
+    if args.moving_to is not None:
+        coordinates.append(args.moving_to)
+        if tuple(args.moving_to) == start:
+            p.error('--moving-to must differ from the obstacle start')
+    if not all(math.isfinite(v) for xy in coordinates for v in xy):
+        p.error('obstacle coordinates must be finite')
+    if not math.isfinite(args.moving_speed) or args.moving_speed <= 0:
+        p.error('--moving-speed must be positive and finite')
+    generate(args.fixed_obstacle, args.moving_to is not None)
+    rclpy.init(args=[])
+    node=WalkingSim(args.domain,args.start_x,args.start_y,args.start_yaw,
+                    args.obstacle_x,args.obstacle_y,
+                    args.fixed_obstacle,args.moving_to,args.moving_speed,
+                    show_moving=args.moving_obstacle, show_fixed=args.fixed_obstacles is not None)
+    viewer=None
+    if not args.headless:
+        import mujoco.viewer
+        viewer=mujoco.viewer.launch_passive(node.model,node.data);viewer.cam.distance=7;viewer.cam.lookat[:]=[0,0,1]
+    start=time.monotonic();next_view=start
+    try:
+        while rclpy.ok() and (viewer is None or viewer.is_running()):
+            node.step();rclpy.spin_once(node,timeout_sec=0.)
+            if node.reset_wall:start=time.monotonic()-node.data.time;node.reset_wall=False
+            if viewer and time.monotonic()>=next_view:viewer.sync();next_view=time.monotonic()+1/30
+            time.sleep(max(0.,start+node.data.time-time.monotonic()))
+    except KeyboardInterrupt:pass
+    finally:
+        if viewer:viewer.close()
+        node.destroy_node();rclpy.try_shutdown()
+if __name__=='__main__':main()
