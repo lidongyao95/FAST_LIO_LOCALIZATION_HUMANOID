@@ -6,7 +6,7 @@
 
 ```bash
 ssh unitree@<PC2 地址>
-cd ~/ldy/FAST_LIO_LOCALIZATION_HUMANOID
+cd ~/ldy/g1_slam
 ```
 
 机器人行走时，旁边要有人看着，遥控器拿在手里，随时可以按急停。

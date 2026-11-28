@@ -15,20 +15,31 @@ action=${1:-check}
 [[ $# -le 1 ]] || { echo '错误：参数过多。' >&2; exit 2; }
 command -v rsync >/dev/null || { echo "错误：需要 rsync。" >&2; exit 1; }
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# Login address and workspace folder come from robot/config/pc2.conf; the environment overrides it.
+config_host=${PC2_HOST:-} config_workspace=${PC2_WORKSPACE:-}
+source "$repo/robot/config/pc2.conf"
+PC2_HOST=${config_host:-$PC2_HOST}
+PC2_WORKSPACE=${config_workspace:-$PC2_WORKSPACE}
+[[ "$PC2_WORKSPACE" =~ ^[A-Za-z0-9._/-]+$ && "$PC2_WORKSPACE" != /* ]] ||
+  { echo '错误：PC2_WORKSPACE 是 PC2 主目录下的文件夹名，例如 ldy。' >&2; exit 2; }
+pc2_ip=${PC2_HOST#*@}
+remote_repo="$PC2_WORKSPACE/g1_slam"
 command -v ssh >/dev/null || { echo '错误：需要 ssh。' >&2; exit 1; }
 log_dir="${G1_SETUP_LOG_DIR:-${TMPDIR:-/tmp}/g1-pc2-setup}"
 mkdir -p "$log_dir"
 log_file=$(mktemp "$log_dir/check-$(date +%Y%m%d-%H%M%S)-XXXXXX")
-echo "第一步：通过有线地址 unitree@192.168.123.164 检查 PC2。"
+echo "第一步：通过有线地址 $PC2_HOST 检查 PC2，代码目录 ~/$remote_repo。"
 echo "日志：$log_file"
 if ssh -o ConnectTimeout=6 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
-  unitree@192.168.123.164 'bash -s' <<'REMOTE' 2>&1 | tee -a "$log_file"
+  "$PC2_HOST" "bash -s -- '$remote_repo' '$pc2_ip'" <<'REMOTE' 2>&1 | tee -a "$log_file"
 set -euo pipefail
+dep_repo="$HOME/$1"
+pc2_ip=$2
 printf '主机：'; hostname
 printf '架构：'; uname -m
 [[ "$(uname -m)" == aarch64 ]] || { echo '错误：目标不是 ARM64 PC2。'; exit 1; }
 ip -4 addr show eth0
-ip -4 -o addr show eth0 | awk '$4 == "192.168.123.164/24" { found=1 } END { exit !found }' || {
+ip -4 -o addr show eth0 | awk -v want="$pc2_ip/24" '$4 == want { found=1 } END { exit !found }' || {
   echo '错误：eth0 地址不符合 PC2 有线配置。'; exit 1;
 }
 . /etc/os-release
@@ -49,10 +60,11 @@ systemctl show whu_rb.service -p ActiveState -p UnitFileState -p Restart -p Exec
 systemctl list-units --type=service --state=running --no-pager || true
 systemctl --user list-units --type=service --state=running --no-pager || true
 echo '第三步：源码、依赖与安装产物（存在不代表版本一致）'
-/usr/bin/python3 - <<'PYREMOTE'
+/usr/bin/python3 - "$dep_repo" <<'PYREMOTE'
 import os
+import sys
 from pathlib import Path
-repo = Path.home() / 'ldy/FAST_LIO_LOCALIZATION_HUMANOID'
+repo = Path(sys.argv[1])
 checks = {
  '源码': ['g1_slam', 'shared/self_check.sh', 'shared/processes.py',
           'packages/fast_lio/package.xml', 'packages/open3d_loc/package.xml',
@@ -83,17 +95,16 @@ else:
  print('文件完整性检查通过；仍需核对源码差异、动态库与运行自检。')
 PYREMOTE
 # ldd 只检查本部署二进制；不调用会启动 ROS daemon 或写工作流日志的自检入口。
-if [[ -f "$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID/install/local_setup.bash" ]]; then
+if [[ -f "$dep_repo/install/local_setup.bash" ]]; then
   set +u
   source /opt/ros/foxy/setup.bash
-  source "$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID/install/local_setup.bash"
+  source "$dep_repo/install/local_setup.bash"
   set -u
   echo 'ROS 包安装位置（缺失项需补齐或构建）：'
   for package in livox_ros_driver2 fast_lio open3d_loc nav2_map_server nav2_planner; do
     ros2 pkg prefix "$package" || echo "待处理：缺少 ROS 包 $package"
   done
   /usr/bin/python3 -c 'import numpy; from scipy.spatial import cKDTree; import rclpy' || echo '待处理：补齐 Python NumPy/SciPy/rclpy 依赖'
-  dep_repo="$HOME/ldy/FAST_LIO_LOCALIZATION_HUMANOID"
   export LD_LIBRARY_PATH="$dep_repo/.deps/sdk/lib:$dep_repo/.deps/root/usr/lib/aarch64-linux-gnu:$dep_repo/.deps/arm-open3d/runtime/usr/lib/aarch64-linux-gnu:/usr/local/lib:${LD_LIBRARY_PATH:-}"
   for binary in "$dep_repo"/install/{livox_ros_driver2/lib/livox_ros_driver2/livox_ros_driver2_node,fast_lio/lib/fast_lio/fastlio_mapping,open3d_loc/lib/open3d_loc/global_localization_node}; do
     if [[ -x "$binary" ]]; then
@@ -116,7 +127,7 @@ fi
 if [[ "$action" == build ]]; then
   echo '第四步：PC2 本机构建与自检；不自动同步或重启运行会话。' | tee -a "$log_file"
   ssh -o ConnectTimeout=6 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
-    unitree@192.168.123.164 'cd ~/ldy/FAST_LIO_LOCALIZATION_HUMANOID && bash robot/pc2_build.sh' \
+    "$PC2_HOST" "cd ~/'$remote_repo' && bash robot/pc2_build.sh" \
     2>&1 | tee -a "$log_file"
   exit 0
 fi
@@ -131,16 +142,16 @@ excludes=(
 )
 if [[ "$action" == sync ]]; then
   echo '第四步：以本地源码为准同步 PC2（含删除远端多余源码）' | tee -a "$log_file"
-  ssh -o ConnectTimeout=6 unitree@192.168.123.164 'mkdir -p ~/ldy/FAST_LIO_LOCALIZATION_HUMANOID'
+  ssh -o ConnectTimeout=6 "$PC2_HOST" "mkdir -p ~/'$remote_repo' ~/'$PC2_WORKSPACE'/g1_real_data"
   # 排除项同时保护接收端；禁止 --delete-excluded，保留 PC2 本机构建与运行数据。
   rsync -aic --delete-delay "${excludes[@]}" \
     -e 'ssh -o LogLevel=ERROR -o ConnectTimeout=6 -o ServerAliveInterval=5 -o ServerAliveCountMax=2' \
-    "$repo/" unitree@192.168.123.164:ldy/FAST_LIO_LOCALIZATION_HUMANOID/ \
+    "$repo/" "$PC2_HOST:$remote_repo/" \
     2>&1 | tee -a "$log_file"
   echo '第五步：校验同步结果' | tee -a "$log_file"
   rsync -ainc --delete "${excludes[@]}" \
     -e 'ssh -o LogLevel=ERROR -o ConnectTimeout=6 -o ServerAliveInterval=5 -o ServerAliveCountMax=2' \
-    "$repo/" unitree@192.168.123.164:ldy/FAST_LIO_LOCALIZATION_HUMANOID/ \
+    "$repo/" "$PC2_HOST:$remote_repo/" \
     > "$log_file.sync-verify" 2>&1
   cat "$log_file.sync-verify" | tee -a "$log_file"
   # 旧源码目录可能仅剩受保护的 build/__pycache__，rsync 会报告无法删除空壳目录。
@@ -161,7 +172,7 @@ fi
 echo '第四步：反向源码差异（PC2 → Mac，dry-run；不写入源码）' | tee -a "$log_file"
 # -c 比较内容，避免只因跨机时间戳不同而误报；无 --delete。
 if rsync -ainc -e 'ssh -o LogLevel=ERROR -o ConnectTimeout=6 -o ServerAliveInterval=5 -o ServerAliveCountMax=2' \
-  "${excludes[@]}" unitree@192.168.123.164:ldy/FAST_LIO_LOCALIZATION_HUMANOID/ "$repo/" \
+  "${excludes[@]}" "$PC2_HOST:$remote_repo/" "$repo/" \
   2>&1 | tee "$log_file.reverse-diff" | tee -a "$log_file"; then
   if [[ -s "$log_file.reverse-diff" ]]; then
     echo '待处理：审阅反向差异，保留现场改动并合并后，再预览正向同步；不能据此自动判定哪端更新。'

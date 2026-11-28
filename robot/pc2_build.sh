@@ -3,6 +3,7 @@
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo"
+builds="${G1_DATA:-$(dirname -- "$repo")/g1_real_data}/records/builds"
 verify_install() {
   export ROS_DISTRO=foxy ROS_DOMAIN_ID=223 ROS_LOCALHOST_ONLY=1
   bash shared/self_check.sh robot || return
@@ -46,11 +47,11 @@ fi
 [[ $(uname -m) == aarch64 && -f /opt/ros/foxy/setup.bash ]] || {
   echo '需要 PC2 ARM64/Foxy 环境。' >&2; exit 1;
 }
-mkdir -p "$HOME/ldy/g1_real_data/records/builds"
-exec 9>"$HOME/ldy/g1_real_data/records/builds/pc2-build.lock"
+mkdir -p "$builds"
+exec 9>"$builds/pc2-build.lock"
 flock -n 9 || { echo '已有 PC2 构建运行；请先查看 records/builds 下最新日志。' >&2; exit 1; }
 /usr/bin/python3 shared/processes.py --check --scope all --domain 223
-run_dir=$(mktemp -d "$HOME/ldy/g1_real_data/records/builds/pc2-$(date +%Y%m%d-%H%M%S)-XXXXXX")
+run_dir=$(mktemp -d "$builds/pc2-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 nohup bash "$0" --worker "$run_dir" > "$run_dir/build.log" 2>&1 < /dev/null &
 pid=$!
 printf '%s\n' "$pid" > "$run_dir/pid"

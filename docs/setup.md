@@ -33,8 +33,8 @@ sudo apt install -y \
 ### 2. 下载代码并编译
 
 ```bash
-git clone https://github.com/lidongyao95/FAST_LIO_LOCALIZATION_HUMANOID.git
-cd FAST_LIO_LOCALIZATION_HUMANOID
+git clone https://github.com/lidongyao95/g1_slam.git
+cd g1_slam
 ./g1_slam setup
 ```
 
@@ -79,7 +79,12 @@ ssh unitree@192.168.123.164
 
 `sync` 以你电脑上的代码为准，PC2 上的地图和录制数据不受影响。`build` 结束时会自动检查环境，显示“PC2 环境检查通过”就完成了。
 
-代码在 PC2 的 `~/ldy/FAST_LIO_LOCALIZATION_HUMANOID`，地图和日志在 `~/ldy/g1_real_data`。
+代码传到 PC2 的 `~/ldy/g1_slam`，地图和日志在旁边的 `~/ldy/g1_real_data`。想换地址或把 `ldy` 换成别的文件夹，改 `robot/config/pc2.conf`：
+
+```
+PC2_HOST=unitree@192.168.123.164
+PC2_WORKSPACE=ldy
+```
 
 ### 3. 切到无线（可选）
 

@@ -23,7 +23,9 @@ ensure_livox() {
     # the SDK cannot bind the receive sockets and the driver dies with
     # "bind failed". Reinstalling the driver source restores them, so put the
     # robot addresses back before every launch.
-    if ! grep -q 192.168.123.164 "$config" 2>/dev/null; then
+    local host_ip
+    host_ip=$(sed -n 's/.*"cmd_data_ip" *: *"\([^"]*\)".*/\1/p' "$repo/robot/config/MID360_config.robot.json" | head -1)
+    if ! grep -q -- "$host_ip" "$config" 2>/dev/null; then
         cp "$repo/robot/config/MID360_config.robot.json" "$config"
         say "已恢复雷达接收地址配置：$config"
     fi

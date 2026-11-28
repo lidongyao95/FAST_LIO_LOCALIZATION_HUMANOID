@@ -18,14 +18,13 @@ USAGE
 }
 
 case "${1:-}" in ''|-h|--help) usage; exit 0 ;; esac
-G1_DATA="${G1_DATA:-$HOME/ldy/g1_real_data}"
 map_dir="$G1_DATA/maps/$1"
 [[ -d "$map_dir" ]] || map_dir=$(absolute "$1")
 shift
 map="$map_dir/map.yaml"
 port=18081
 mode=real
-sdk="${G1_DATA:-$HOME/ldy/g1_real_data}/bin/g1_navigation_sdk"
+sdk="$G1_DATA/bin/g1_navigation_sdk"
 interface=${G1_ROBOT_INTERFACE:-eth0}
 while (($#)); do
     case "$1" in

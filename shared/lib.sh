@@ -3,6 +3,8 @@ set -eE -o pipefail
 
 workflow_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd -- "$workflow_dir/.." && pwd)"
+# Maps, bags and logs live beside the checkout: <workspace>/g1_real_data.
+export G1_DATA="${G1_DATA:-$(dirname -- "$repo")/g1_real_data}"
 run_dir=
 pids=()
 labels=()
@@ -32,7 +34,7 @@ absolute() { "${G1_PYTHON:-python3}" -c 'from pathlib import Path; import sys; p
 check_file() { [[ -s "$1" ]] || fail "缺少文件或文件为空：$1"; }
 
 log_session() {
-    local default_root=${1:-${G1_DATA:-$HOME/ldy/g1_real_data}/records/workflows}
+    local default_root=${1:-$G1_DATA/records/workflows}
     local root="${G1_WORKFLOW_LOGS:-$default_root}"
     root="$(absolute "$root")"
     mkdir -p "$root"

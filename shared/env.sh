@@ -35,7 +35,7 @@ if ((g1_setup_status != 0)); then
 fi
 unset g1_setup_status
 export ROS_DISTRO="$G1_ROS_DISTRO"
-export G1_DATA="${G1_DATA:-$HOME/ldy/g1_real_data}"
+export G1_DATA="${G1_DATA:-$(dirname -- "$G1_REPO")/g1_real_data}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-72}"
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export ROS_LOG_DIR="${ROS_LOG_DIR:-$G1_REPO/sim/generated/ros_logs}"

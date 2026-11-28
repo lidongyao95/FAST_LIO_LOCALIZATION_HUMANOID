@@ -18,7 +18,7 @@ usage() {
   ./g1_slam robot clean 扫描目录 地图名
       在装有 dufomap 的 x86 电脑上清理动态点并导出地图。
 
-地图保存在 $G1_DATA/maps/地图名/，默认 G1_DATA=~/ldy/g1_real_data。
+地图保存在代码目录旁边的 g1_real_data/maps/地图名/。
 EOF
 }
 
@@ -39,7 +39,6 @@ mode=$1
 shift
 for arg in "$@"; do if [[ "$arg" == --help || "$arg" == -h ]]; then usage; exit 0; fi; done
 python=/usr/bin/python3
-G1_DATA="${G1_DATA:-$HOME/ldy/g1_real_data}"
 resolution=.08 voxel=.06
 
 case "$mode" in
