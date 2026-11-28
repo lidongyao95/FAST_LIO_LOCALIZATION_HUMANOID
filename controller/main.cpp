@@ -38,7 +38,7 @@ REGISTER_OBSERVATION(control_gait_phase){
  const float period=params["period"].as<float>();
  env->global_phase=std::fmod(env->global_phase+env->step_dt/period,1.0f);
  auto cmd=control_velocity_commands(env,params);
- if(std::sqrt(cmd[0]*cmd[0]+cmd[1]*cmd[1]+cmd[2]*cmd[2])<.1f)return {0.f,0.f};
+ if(std::sqrt(cmd[0]*cmd[0]+cmd[1]*cmd[1]+cmd[2]*cmd[2])<.02f)return {0.f,0.f};
  return {std::sin(env->global_phase*2*M_PI),std::cos(env->global_phase*2*M_PI)};
 }
 }
@@ -70,7 +70,7 @@ int main(int argc,char** argv){
    f>>source;
    if(mode>=1&&mode<=3){if(mode!=previous_mode){requested=mode;previous_mode=mode;}
     std::lock_guard<std::mutex> l(cmd_mutex);
-    ros_velocity={std::clamp(x,-.3f,.3f),std::clamp(y,-.15f,.15f),std::clamp(w,-.4f,.4f)};
+    ros_velocity={std::clamp(x,-.5f,1.f),std::clamp(y,-.5f,.5f),std::clamp(w,-1.f,1.f)};
     ros_cmd_time=t;ros_nav_active=source==1;}
   }
   if(FSMState::keyboard){

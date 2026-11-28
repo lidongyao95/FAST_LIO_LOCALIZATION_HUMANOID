@@ -9,6 +9,8 @@ from std_msgs.msg import String, Bool, Float32
 from nav_msgs.msg import Odometry
 from std_srvs.srv import Trigger
 ROOT=Path(__file__).resolve().parents[2]
+# Command range the walking policy was trained on (x, y, yaw).
+LIMITS=((-.5,1.),(-.5,.5),(-1.,1.))
 class Commands(Node):
  def __init__(self):
   super().__init__('g1_command_bridge');self.mode=1;self.vel=[0.,0.,0.];self.last=0.
@@ -31,10 +33,10 @@ class Commands(Node):
   if msg.data in modes:self.mode=modes[msg.data];self.vel=[0.,0.,0.];self.last=0.
  def command(self,msg):
   v=[msg.linear.x,msg.linear.y,msg.angular.z]
-  if all(math.isfinite(x) for x in v):self.vel=[max(-l,min(l,x)) for x,l in zip(v,[.3,.15,.4])];self.last=time.monotonic()
+  if all(math.isfinite(x) for x in v):self.vel=[max(lo,min(hi,x)) for x,(lo,hi) in zip(v,LIMITS)];self.last=time.monotonic()
  def nav_command(self,msg):
   v=[msg.linear.x,msg.linear.y,msg.angular.z]
-  if all(math.isfinite(x) for x in v):self.nav_vel=[max(-l,min(l,x)) for x,l in zip(v,[.3,.15,.4])];self.nav_last=time.monotonic()
+  if all(math.isfinite(x) for x in v):self.nav_vel=[max(lo,min(hi,x)) for x,(lo,hi) in zip(v,LIMITS)];self.nav_last=time.monotonic()
  def nav_enable_cb(self,msg):
   self.nav_enabled=msg.data;self.nav_last=0.
  def conf_cb(self,msg):
