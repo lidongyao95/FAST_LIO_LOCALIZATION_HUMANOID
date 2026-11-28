@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise global search on hidden transformed real geometry and rejection cases."""
+"""Check the automatic relocalization program: it must find a hidden transform and reject ambiguous, unrelated and inconsistent scans."""
 import argparse
 import json
 from pathlib import Path
@@ -25,7 +25,7 @@ def main():
     parser.add_argument('--pcd', required=True, type=Path)
     parser.add_argument('--out', required=True, type=Path)
     args = parser.parse_args()
-    args.out.mkdir(parents=True, exist_ok=False)
+    args.out.mkdir(parents=True, exist_ok=True)
     xyz = read_pcd(args.pcd)
     xyz = xyz[np.linalg.norm(xyz[:, :2], axis=1) < 25][::2]
     patch = xyz[np.linalg.norm(xyz[:, :2] - [2., -3.], axis=1) < 9]
